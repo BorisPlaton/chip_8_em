@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 /// Represents an CHIP-8 instruction, for instance:
 /// * 00E0 - CLS (Clear the display)
 /// * 00EE - RET (Return from a subroutine)
@@ -27,24 +25,6 @@ impl Instruction {
         let first_nibble = bytes[0] & 0x0F;
         let second_nibble = bytes[1] >> 4;
         let third_nibble = bytes[1] & 0x0F;
-
-        let mut registers = HashMap::with_capacity(16);
-        registers.insert(0x0, 0);
-        registers.insert(0x1, 0);
-        registers.insert(0x2, 0);
-        registers.insert(0x3, 0);
-        registers.insert(0x4, 0);
-        registers.insert(0x5, 0);
-        registers.insert(0x6, 0);
-        registers.insert(0x7, 0);
-        registers.insert(0x8, 0);
-        registers.insert(0x9, 0);
-        registers.insert(0xA, 0);
-        registers.insert(0xB, 0);
-        registers.insert(0xC, 0);
-        registers.insert(0xD, 0);
-        registers.insert(0xE, 0);
-        registers.insert(0xF, 0);
 
         Instruction {
             value,
