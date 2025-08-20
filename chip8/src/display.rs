@@ -20,4 +20,8 @@ impl Display {
         }
         self.buffer[(x + (y * Self::DISPLAY_WIDTH)) as usize] = pixel;
     }
+
+    pub fn clear(&mut self) {
+        self.buffer = [false; 256];
+    }
 }
