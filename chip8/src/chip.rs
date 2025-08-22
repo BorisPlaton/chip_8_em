@@ -1,5 +1,6 @@
 use crate::display::Display;
 use crate::instruction::Instruction;
+use crate::keyboard::Keyboard;
 use crate::memory::Memory;
 use crate::stack::Stack;
 use std::collections::HashMap;
@@ -8,6 +9,7 @@ pub struct Chip8 {
     memory: Memory,
     stack: Stack,
     display: Display,
+    keyboard: Keyboard,
     /// General purpose registers.
     registers: HashMap<u8, u8>,
     /// `I` register is generally used to store memory addresses, so only
@@ -28,6 +30,7 @@ impl Chip8 {
             memory,
             stack: Stack::default(),
             display: Display::default(),
+            keyboard: Keyboard::default(),
             i_register: 0,
             dt_register: 0,
             st_register: 0,
@@ -85,9 +88,9 @@ impl Chip8 {
                 (0xA, _, _) => self.ld_i_addr(instruction),
                 (0xB, _, _) => self.jp_vo_addr(instruction),
                 (0xC, _, _) => self.rnd_vx_byte(instruction),
-                (0xD, _, _) => self.drw(instruction),
-                (0xE, _, (_, 0x9, 0xE)) => self.skp(instruction),
-                (0xE, _, (_, 0xA, 1)) => self.sknp(instruction),
+                (0xD, _, _) => self.drw_vx_vy_n(instruction),
+                (0xE, _, (_, 0x9, 0xE)) => self.skp_vx(instruction),
+                (0xE, _, (_, 0xA, 1)) => self.sknp_vx(instruction),
                 (0xF, _, (_, 0, 7)) => self.ld_reg_dt(instruction),
                 (0xF, _, (_, 0, 0xA)) => self.ld_k(instruction),
                 (0xF, _, (_, 1, 5)) => self.ld_dt_reg(instruction),
@@ -351,21 +354,41 @@ impl Chip8 {
     /// be erased, VF is set to 1, otherwise it is set to 0. If the sprite is positioned
     /// so part of it is outside the coordinates of the display, it wraps around to
     /// the opposite side of the screen.
-    fn drw(&mut self, instruction: Instruction) {}
+    fn drw_vx_vy_n(&mut self, instruction: Instruction) {
+        let sprite_bytes: Vec<_> = (0..instruction.n())
+            .into_iter()
+            .map(|i| self.memory.read(self.i_register + i as u16))
+            .collect();
+        self.display.draw_sprite(
+            *self.registers.get(&instruction.x()).unwrap() as usize,
+            *self.registers.get(&instruction.y()).unwrap() as usize,
+            &sprite_bytes,
+        );
+    }
 
     /// Ex9E - SKP Vx
     /// Skip next instruction if key with the value of Vx is pressed.
     ///
     /// Checks the keyboard, and if the key corresponding to the value of Vx is
     /// currently in the down position, PC is increased by 2.
-    fn skp(&mut self, instruction: Instruction) {}
+    fn skp_vx(&mut self, instruction: Instruction) {
+        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        if self.keyboard.is_pressed(register_x) {
+            self.program_counter += 2
+        };
+    }
 
     /// ExA1 - SKNP Vx
     /// Skip next instruction if key with the value of Vx is not pressed.
     ///
     /// Checks the keyboard, and if the key corresponding to the value of Vx is
     /// currently in the up position, PC is increased by 2.
-    fn sknp(&mut self, instruction: Instruction) {}
+    fn sknp_vx(&mut self, instruction: Instruction) {
+        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        if !self.keyboard.is_pressed(register_x) {
+            self.program_counter += 2
+        };
+    }
 
     /// Fx07 - LD Vx, DT
     /// Set Vx = delay timer value.
