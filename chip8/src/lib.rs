@@ -3,4 +3,5 @@ mod display;
 mod instruction;
 mod keyboard;
 mod memory;
+mod registers;
 mod stack;

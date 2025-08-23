@@ -2,6 +2,8 @@ use crate::display::Display;
 use crate::instruction::Instruction;
 use crate::keyboard::Keyboard;
 use crate::memory::Memory;
+use crate::registers::memory::MemoryRegister;
+use crate::registers::timer::TimerRegister;
 use crate::stack::Stack;
 use std::collections::HashMap;
 
@@ -14,26 +16,25 @@ pub struct Chip8 {
     registers: HashMap<u8, u8>,
     /// `I` register is generally used to store memory addresses, so only
     /// the lowest (rightmost) 12 bits are usually used.
-    i_register: u16,
+    i_register: MemoryRegister,
     /// Delay timer register.
-    dt_register: u8,
+    dt_register: TimerRegister,
     /// Sound timer register.
-    st_register: u8,
+    st_register: TimerRegister,
     /// PC is used to store the currently executing address.
     program_counter: u16,
 }
 
 impl Chip8 {
-    pub const ADDRESS_MIRRORING: u16 = 0x0FFF;
     pub fn new(memory: Memory) -> Chip8 {
         Chip8 {
             memory,
             stack: Stack::default(),
             display: Display::default(),
             keyboard: Keyboard::default(),
-            i_register: 0,
-            dt_register: 0,
-            st_register: 0,
+            i_register: MemoryRegister::default(),
+            dt_register: TimerRegister::default(),
+            st_register: TimerRegister::default(),
             program_counter: Memory::PROGRAM_ADDR_START,
             registers: {
                 let mut registers = HashMap::with_capacity(0xF);
@@ -91,15 +92,15 @@ impl Chip8 {
                 (0xD, _, _) => self.drw_vx_vy_n(instruction),
                 (0xE, _, (_, 0x9, 0xE)) => self.skp_vx(instruction),
                 (0xE, _, (_, 0xA, 1)) => self.sknp_vx(instruction),
-                (0xF, _, (_, 0, 7)) => self.ld_reg_dt(instruction),
-                (0xF, _, (_, 0, 0xA)) => self.ld_k(instruction),
-                (0xF, _, (_, 1, 5)) => self.ld_dt_reg(instruction),
-                (0xF, _, (_, 1, 8)) => self.ld_st(instruction),
-                (0xF, _, (_, 1, 0xE)) => self.add_i_reg(instruction),
-                (0xF, _, (_, 2, 9)) => self.ld_sprite(instruction),
-                (0xF, _, (_, 3, 3)) => self.ld_bcd(instruction),
-                (0xF, _, (_, 5, 5)) => self.ld_i(instruction),
-                (0xF, _, (_, 6, 3)) => self.ld_regs(instruction),
+                (0xF, _, (_, 0, 7)) => self.ld_vx_dt(instruction),
+                (0xF, _, (_, 0, 0xA)) => self.ld_vx_k(instruction),
+                (0xF, _, (_, 1, 5)) => self.ld_dt_vx(instruction),
+                (0xF, _, (_, 1, 8)) => self.ld_st_vx(instruction),
+                (0xF, _, (_, 1, 0xE)) => self.add_i_vx(instruction),
+                (0xF, _, (_, 2, 9)) => self.ld_f_vx(instruction),
+                (0xF, _, (_, 3, 3)) => self.ld_b_vx(instruction),
+                (0xF, _, (_, 5, 5)) => self.ld_i_vx(instruction),
+                (0xF, _, (_, 6, 3)) => self.ld_vx_i(instruction),
                 (_, bytes, _) => panic!("Unknown instruction - 0x{bytes:04x}"),
             }
         }
@@ -322,7 +323,7 @@ impl Chip8 {
     ///
     /// The value of register I is set to nnn.
     fn ld_i_addr(&mut self, instruction: Instruction) {
-        self.i_register = instruction.nnn();
+        self.i_register.set(instruction.nnn());
     }
 
     /// Bnnn - JP V0, addr
@@ -357,7 +358,7 @@ impl Chip8 {
     fn drw_vx_vy_n(&mut self, instruction: Instruction) {
         let sprite_bytes: Vec<_> = (0..instruction.n())
             .into_iter()
-            .map(|i| self.memory.read(self.i_register + i as u16))
+            .map(|i| self.memory.read(self.i_register.add(i as u16)))
             .collect();
         self.display.draw_sprite(
             *self.registers.get(&instruction.x()).unwrap() as usize,
@@ -394,32 +395,50 @@ impl Chip8 {
     /// Set Vx = delay timer value.
     ///
     /// The value of DT is placed into Vx.
-    fn ld_reg_dt(&mut self, instruction: Instruction) {}
+    fn ld_vx_dt(&mut self, instruction: Instruction) {
+        self.registers
+            .insert(instruction.x(), self.dt_register.get());
+    }
 
     /// Fx0A - LD Vx, K
     /// Wait for a key press, store the value of the key in Vx.
     ///
     /// All execution stops until a key is pressed, then the value of that key is
     /// stored in Vx.
-    fn ld_k(&mut self, instruction: Instruction) {}
+    fn ld_vx_k(&mut self, instruction: Instruction) {
+        if let Some(pressed_key) = self.keyboard.pressed_key() {
+            self.registers.insert(instruction.x(), pressed_key);
+        } else {
+            self.program_counter -= 2;
+        };
+    }
 
     /// Fx15 - LD DT, Vx
     /// Set delay timer = Vx.
     ///
     /// DT is set equal to the value of Vx.
-    fn ld_dt_reg(&mut self, instruction: Instruction) {}
+    fn ld_dt_vx(&mut self, instruction: Instruction) {
+        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        self.dt_register.set(register_x);
+    }
 
     /// Fx18 - LD ST, Vx
     /// Set sound timer = Vx.
     ///
     /// ST is set equal to the value of Vx.
-    fn ld_st(&mut self, instruction: Instruction) {}
+    fn ld_st_vx(&mut self, instruction: Instruction) {
+        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        self.st_register.set(register_x);
+    }
 
     /// Fx1E - ADD I, Vx
     /// Set I = I + Vx.
     ///
-    /// The values of I and Vx are added, and the results are stored in I.
-    fn add_i_reg(&mut self, instruction: Instruction) {}
+    /// The values of I and Vx are added, and the results are stored in `I`.
+    fn add_i_vx(&mut self, instruction: Instruction) {
+        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        self.i_register.set(self.i_register.add(register_x as u16));
+    }
 
     /// Fx29 - LD F, Vx
     /// Set I = location of sprite for digit Vx.
@@ -427,7 +446,11 @@ impl Chip8 {
     /// The value of I is set to the location for the hexadecimal sprite corresponding
     /// to the value of Vx. See section 2.4, Display, for more information on the
     /// Chip-8 hexadecimal font.
-    fn ld_sprite(&mut self, instruction: Instruction) {}
+    fn ld_f_vx(&mut self, instruction: Instruction) {
+        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        self.i_register
+            .set(self.memory.get_font_digit_address(register_x));
+    }
 
     /// Fx33 - LD B, Vx
     /// Store BCD representation of Vx in memory locations I, I+1, and I+2.
@@ -435,21 +458,53 @@ impl Chip8 {
     /// The interpreter takes the decimal value of Vx, and places the hundreds digit
     /// in memory at location in I, the tens digit at location I+1, and the ones
     /// digit at location I+2.
-    fn ld_bcd(&mut self, instruction: Instruction) {}
+    fn ld_b_vx(&mut self, instruction: Instruction) {
+        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        self.memory.write(self.i_register.get(), register_x / 100);
+        self.memory
+            .write(self.i_register.add(1), (register_x / 10) % 10);
+        self.memory.write(self.i_register.add(2), register_x % 10);
+    }
 
     /// Fx55 - LD [I], Vx
     /// Store registers V0 through Vx in memory starting at location I.
     ///
     /// The interpreter copies the values of registers V0 through Vx into memory,
     /// starting at the address in `I`.
-    fn ld_i(&mut self, instruction: Instruction) {}
+    fn ld_i_vx(&mut self, instruction: Instruction) {
+        self.registers
+            .iter()
+            .filter(|&(&register, _)| register <= instruction.x())
+            .for_each(|(&register, &value)| {
+                self.memory
+                    .write(self.i_register.add(register as u16), value);
+            });
+    }
 
     /// Fx65 - LD Vx, [I]
     /// Read registers V0 through Vx from memory starting at location I.
     ///
     /// The interpreter reads values from memory starting at location I into
     /// registers V0 through Vx.
-    fn ld_regs(&mut self, instruction: Instruction) {}
+    fn ld_vx_i(&mut self, instruction: Instruction) {
+        let registers = self
+            .registers
+            .iter()
+            .filter_map(|(&register, _)| {
+                if register <= instruction.x() {
+                    Some(register)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        registers.iter().for_each(|&register| {
+            self.registers.insert(
+                register,
+                self.memory.read(self.i_register.add(register as u16)),
+            );
+        });
+    }
 
     fn next_instruction(&mut self) -> Instruction {
         let instruction_bytes = u16::from_be_bytes([

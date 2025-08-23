@@ -1,4 +1,4 @@
-use crate::chip::Chip8;
+use crate::memory::Memory;
 
 /// The stack is an array of 16 16-bit values, used to store the address
 /// that the interpreter should return to when finished with a subroutine.
@@ -23,7 +23,7 @@ impl Stack {
             panic!("Can't pull because stack is empty.");
         }
         self.stack_pointer -= 1;
-        self.stack[self.stack_pointer as usize] & Chip8::ADDRESS_MIRRORING
+        self.stack[self.stack_pointer as usize] & Memory::MEMORY_SIZE
     }
 }
 

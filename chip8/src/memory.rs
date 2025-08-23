@@ -30,7 +30,7 @@ pub struct Memory {
 impl Memory {
     const RESERVED_ADDR_START: u16 = 0;
     pub const PROGRAM_ADDR_START: u16 = 0x200;
-    const MEMORY_SIZE: u16 = 0xFFF;
+    pub const MEMORY_SIZE: u16 = 0xFFF;
 
     pub fn new(program: &[u8]) -> Memory {
         let mut mem = Self::default();
