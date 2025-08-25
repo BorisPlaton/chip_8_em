@@ -1,0 +1,8 @@
+[package]
+name = "emulator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chip8 = { path = "../chip8" }
+sdl2 = "0.38.0"

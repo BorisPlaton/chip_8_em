@@ -4,7 +4,15 @@ pub struct Keyboard {
 }
 
 impl Keyboard {
-    pub fn is_pressed(&self, key: u8) -> bool {
+    pub fn press_key(&mut self, key: u8) {
+        self.keys[key as usize] = true;
+    }
+
+    pub fn release_key(&mut self, key: u8) {
+        self.keys[key as usize] = false;
+    }
+
+    pub fn is_key_pressed(&self, key: u8) -> bool {
         self.keys[key as usize]
     }
 

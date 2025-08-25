@@ -4,6 +4,7 @@ use crate::keyboard::Keyboard;
 use crate::memory::Memory;
 use crate::registers::memory::MemoryRegister;
 use crate::registers::timer::TimerRegister;
+use crate::rom::Rom;
 use crate::stack::Stack;
 use std::collections::HashMap;
 
@@ -26,9 +27,9 @@ pub struct Chip8 {
 }
 
 impl Chip8 {
-    pub fn new(memory: Memory) -> Chip8 {
+    pub fn new(rom: Rom) -> Chip8 {
         Chip8 {
-            memory,
+            memory: Memory::new(rom.content()),
             stack: Stack::default(),
             display: Display::default(),
             keyboard: Keyboard::default(),
@@ -59,49 +60,49 @@ impl Chip8 {
         }
     }
 
-    pub fn run(&mut self) {
+    pub fn run<F>(&mut self, mut callback: F)
+    where
+        F: FnMut(&mut Keyboard, &Display),
+    {
         loop {
+            callback(&mut self.keyboard, &self.display);
             let instruction = self.next_instruction();
-            match (
-                instruction.opcode(),
-                instruction.value(),
-                instruction.parameters(),
-            ) {
-                (0 | 1, _, _) => self.jp_addr(instruction),
-                (_, 0x00E0, _) => self.cls(),
-                (_, 0x00EE, _) => self.ret(),
-                (2, _, _) => self.call_addr(instruction),
-                (3, _, _) => self.se_vx_byte(instruction),
-                (4, _, _) => self.sne_vx_byte(instruction),
-                (5, _, _) => self.se_vx_vy(instruction),
-                (6, _, _) => self.ld_vx_byte(instruction),
-                (7, _, _) => self.add_vx_byte(instruction),
-                (8, _, (_, _, 0)) => self.ld_vx_vy(instruction),
-                (8, _, (_, _, 1)) => self.or_vx_vy(instruction),
-                (8, _, (_, _, 2)) => self.and_vx_vy(instruction),
-                (8, _, (_, _, 3)) => self.xor_vx_vy(instruction),
-                (8, _, (_, _, 4)) => self.add_vx_vy(instruction),
-                (8, _, (_, _, 5)) => self.sub_vx_vy(instruction),
-                (8, _, (_, _, 6)) => self.shr_vx(instruction),
-                (8, _, (_, _, 7)) => self.subn_vx_vy(instruction),
-                (8, _, (_, _, 0xE)) => self.shl_vx(instruction),
-                (9, _, _) => self.sne_vx_vy(instruction),
-                (0xA, _, _) => self.ld_i_addr(instruction),
-                (0xB, _, _) => self.jp_vo_addr(instruction),
-                (0xC, _, _) => self.rnd_vx_byte(instruction),
-                (0xD, _, _) => self.drw_vx_vy_n(instruction),
-                (0xE, _, (_, 0x9, 0xE)) => self.skp_vx(instruction),
-                (0xE, _, (_, 0xA, 1)) => self.sknp_vx(instruction),
-                (0xF, _, (_, 0, 7)) => self.ld_vx_dt(instruction),
-                (0xF, _, (_, 0, 0xA)) => self.ld_vx_k(instruction),
-                (0xF, _, (_, 1, 5)) => self.ld_dt_vx(instruction),
-                (0xF, _, (_, 1, 8)) => self.ld_st_vx(instruction),
-                (0xF, _, (_, 1, 0xE)) => self.add_i_vx(instruction),
-                (0xF, _, (_, 2, 9)) => self.ld_f_vx(instruction),
-                (0xF, _, (_, 3, 3)) => self.ld_b_vx(instruction),
-                (0xF, _, (_, 5, 5)) => self.ld_i_vx(instruction),
-                (0xF, _, (_, 6, 3)) => self.ld_vx_i(instruction),
-                (_, bytes, _) => panic!("Unknown instruction - 0x{bytes:04x}"),
+            match instruction.nibbles() {
+                (0, _, 0xE, 0) => self.cls(),
+                (0, _, 0xE, 0xE) => self.ret(),
+                (0 | 1, _, _, _) => self.jp_addr(instruction),
+                (2, _, _, _) => self.call_addr(instruction),
+                (3, _, _, _) => self.se_vx_byte(instruction),
+                (4, _, _, _) => self.sne_vx_byte(instruction),
+                (5, _, _, _) => self.se_vx_vy(instruction),
+                (6, _, _, _) => self.ld_vx_byte(instruction),
+                (7, _, _, _) => self.add_vx_byte(instruction),
+                (8, _, _, 0) => self.ld_vx_vy(instruction),
+                (8, _, _, 1) => self.or_vx_vy(instruction),
+                (8, _, _, 2) => self.and_vx_vy(instruction),
+                (8, _, _, 3) => self.xor_vx_vy(instruction),
+                (8, _, _, 4) => self.add_vx_vy(instruction),
+                (8, _, _, 5) => self.sub_vx_vy(instruction),
+                (8, _, _, 6) => self.shr_vx(instruction),
+                (8, _, _, 7) => self.subn_vx_vy(instruction),
+                (8, _, _, 0xE) => self.shl_vx(instruction),
+                (9, _, _, _) => self.sne_vx_vy(instruction),
+                (0xA, _, _, _) => self.ld_i_addr(instruction),
+                (0xB, _, _, _) => self.jp_vo_addr(instruction),
+                (0xC, _, _, _) => self.rnd_vx_byte(instruction),
+                (0xD, _, _, _) => self.drw_vx_vy_n(instruction),
+                (0xE, _, 0x9, 0xE) => self.skp_vx(instruction),
+                (0xE, _, 0xA, 1) => self.sknp_vx(instruction),
+                (0xF, _, 0, 7) => self.ld_vx_dt(instruction),
+                (0xF, _, 0, 0xA) => self.ld_vx_k(instruction),
+                (0xF, _, 1, 5) => self.ld_dt_vx(instruction),
+                (0xF, _, 1, 8) => self.ld_st_vx(instruction),
+                (0xF, _, 1, 0xE) => self.add_i_vx(instruction),
+                (0xF, _, 2, 9) => self.ld_f_vx(instruction),
+                (0xF, _, 3, 3) => self.ld_b_vx(instruction),
+                (0xF, _, 5, 5) => self.ld_i_vx(instruction),
+                (0xF, _, 6, 5) => self.ld_vx_i(instruction),
+                bytes => panic!("Unknown instruction - 0x{bytes:?}",),
             }
         }
     }
@@ -191,7 +192,7 @@ impl Chip8 {
     fn add_vx_byte(&mut self, instruction: Instruction) {
         let register_x = *self.registers.get(&instruction.x()).unwrap();
         self.registers
-            .insert(instruction.x(), register_x + instruction.kk());
+            .insert(instruction.x(), register_x.wrapping_add(instruction.kk()));
     }
 
     /// 8xy0 - LD Vx, Vy
@@ -267,8 +268,10 @@ impl Chip8 {
         let register_y = *self.registers.get(&instruction.y()).unwrap();
         self.registers
             .insert(instruction.x(), register_x.wrapping_sub(register_y));
-        self.registers.insert(0xF, (register_x > register_y) as u8);
+        self.registers.insert(0xF, (register_x >= register_y) as u8);
     }
+
+    // https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#8xy6-and-8xye-shift
 
     /// 8xy6 - SHR Vx {, Vy}
     /// Set Vx = Vx SHR 1.
@@ -276,9 +279,9 @@ impl Chip8 {
     /// If the least-significant bit of Vx is 1, then VF is set to 1, otherwise 0. Then
     /// Vx is divided by 2.
     fn shr_vx(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
-        self.registers.insert(0xF, register_x & 1);
-        self.registers.insert(instruction.x(), register_x >> 1);
+        let register_y = *self.registers.get(&instruction.y()).unwrap();
+        self.registers.insert(instruction.x(), register_y >> 1);
+        self.registers.insert(0xF, register_y & 1);
     }
 
     /// 8xy7 - SUBN Vx, Vy
@@ -291,8 +294,10 @@ impl Chip8 {
         let register_y = *self.registers.get(&instruction.y()).unwrap();
         self.registers
             .insert(instruction.x(), register_y.wrapping_sub(register_x));
-        self.registers.insert(0xF, (register_y > register_x) as u8);
+        self.registers.insert(0xF, (register_y >= register_x) as u8);
     }
+
+    // https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#8xy6-and-8xye-shift
 
     /// 8xyE - SHL Vx {, Vy}
     /// Set Vx = Vx SHL 1.
@@ -300,9 +305,10 @@ impl Chip8 {
     /// If the most-significant bit of Vx is 1, then VF is set to 1, otherwise to 0.
     /// Then Vx is multiplied by 2.
     fn shl_vx(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
-        self.registers.insert(0xF, register_x & 1);
-        self.registers.insert(instruction.x(), register_x << 1);
+        let register_y = *self.registers.get(&instruction.y()).unwrap();
+        self.registers.insert(instruction.x(), register_y << 1);
+        self.registers
+            .insert(0xF, if register_y & 0b1000_0000 != 0 { 1 } else { 0 });
     }
 
     /// 9xy0 - SNE Vx, Vy
@@ -325,6 +331,8 @@ impl Chip8 {
     fn ld_i_addr(&mut self, instruction: Instruction) {
         self.i_register.set(instruction.nnn());
     }
+
+    // https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#bnnn-jump-with-offset
 
     /// Bnnn - JP V0, addr
     /// Jump to location nnn + V0.
@@ -360,11 +368,12 @@ impl Chip8 {
             .into_iter()
             .map(|i| self.memory.read(self.i_register.add(i as u16)))
             .collect();
-        self.display.draw_sprite(
+        let pixel_erased = self.display.draw_sprite(
             *self.registers.get(&instruction.x()).unwrap() as usize,
             *self.registers.get(&instruction.y()).unwrap() as usize,
             &sprite_bytes,
         );
+        self.registers.insert(0xF, pixel_erased as u8);
     }
 
     /// Ex9E - SKP Vx
@@ -374,7 +383,7 @@ impl Chip8 {
     /// currently in the down position, PC is increased by 2.
     fn skp_vx(&mut self, instruction: Instruction) {
         let register_x = *self.registers.get(&instruction.x()).unwrap();
-        if self.keyboard.is_pressed(register_x) {
+        if self.keyboard.is_key_pressed(register_x) {
             self.program_counter += 2
         };
     }
@@ -386,7 +395,7 @@ impl Chip8 {
     /// currently in the up position, PC is increased by 2.
     fn sknp_vx(&mut self, instruction: Instruction) {
         let register_x = *self.registers.get(&instruction.x()).unwrap();
-        if !self.keyboard.is_pressed(register_x) {
+        if !self.keyboard.is_key_pressed(register_x) {
             self.program_counter += 2
         };
     }
@@ -465,6 +474,8 @@ impl Chip8 {
             .write(self.i_register.add(1), (register_x / 10) % 10);
         self.memory.write(self.i_register.add(2), register_x % 10);
     }
+
+    // TODO: https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#fx55-and-fx65-store-and-load-memory
 
     /// Fx55 - LD [I], Vx
     /// Store registers V0 through Vx in memory starting at location I.

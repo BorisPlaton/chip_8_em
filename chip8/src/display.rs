@@ -13,35 +13,45 @@ impl Default for Display {
 }
 
 impl Display {
-    const DISPLAY_WIDTH: usize = 63;
-    const DISPLAY_HEIGHT: usize = 31;
+    const DISPLAY_WIDTH: usize = 64;
+    const DISPLAY_HEIGHT: usize = 32;
 
-    pub fn draw_sprite(&mut self, x: usize, y: usize, sprite: &[u8]) -> PixelErased {
+    pub fn draw_sprite(&mut self, mut x: usize, mut y: usize, sprite: &[u8]) -> PixelErased {
         let mut pixel_erased = false;
+        x %= Self::DISPLAY_WIDTH;
+        y %= Self::DISPLAY_HEIGHT;
+
         for row in 0..sprite.len() {
-            for col in 0..8usize {
-                let y_coord = self.wrap_coordinate(y + row, Self::DISPLAY_HEIGHT);
-                let x_coord = self.wrap_coordinate(x + col, Self::DISPLAY_WIDTH);
-                let is_display_pixel_set = self.buffer[x_coord + y_coord * Self::DISPLAY_WIDTH];
-                let is_sprite_pixel_set = ((sprite[row] >> (7 - col)) & 1) == 1;
-                self.buffer[x_coord + y_coord * Self::DISPLAY_WIDTH] ^= is_sprite_pixel_set;
+            let y_cord = y + row;
+
+            if y_cord >= Self::DISPLAY_HEIGHT {
+                break;
+            }
+
+            for col in 0..8 {
+                let x_cord = x + col;
+
+                if x_cord >= Self::DISPLAY_WIDTH {
+                    break;
+                }
+
+                let coord = x_cord + y_cord * Self::DISPLAY_WIDTH;
+                let is_display_pixel_set = self.buffer[coord];
+                self.buffer[coord] ^= ((sprite[row] >> (7 - col)) & 1) == 1;
+
                 if !pixel_erased && is_display_pixel_set {
-                    pixel_erased = is_display_pixel_set ^ is_sprite_pixel_set;
+                    pixel_erased = !self.buffer[coord];
                 }
             }
         }
         pixel_erased
     }
 
-    pub fn clear(&mut self) {
-        self.buffer = [false; 2048];
+    pub fn buffer(&self) -> &[bool] {
+        &self.buffer
     }
 
-    fn wrap_coordinate(&self, coordinate: usize, limit: usize) -> usize {
-        if coordinate > limit {
-            coordinate % limit - 1
-        } else {
-            coordinate
-        }
+    pub fn clear(&mut self) {
+        self.buffer = [false; 2048];
     }
 }

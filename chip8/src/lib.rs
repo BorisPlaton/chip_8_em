@@ -1,7 +1,8 @@
-mod chip;
-mod display;
+pub mod chip;
+pub mod display;
 mod instruction;
-mod keyboard;
+pub mod keyboard;
 mod memory;
 mod registers;
+pub mod rom;
 mod stack;
