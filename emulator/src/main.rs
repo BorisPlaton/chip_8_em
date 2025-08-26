@@ -9,7 +9,7 @@ mod chip;
 mod frame;
 
 fn main() {
-    let program_path = "./roms/test-quirks.ch8".to_string();
+    let program_path = "./roms/slipperyslope.ch8".to_string();
     let mut chip8 = init_chip8(program_path);
 
     let scale = 10;
@@ -58,25 +58,22 @@ fn main() {
         texture.update(None, frame.pixels(), 64 * 3).unwrap();
         canvas.copy(&texture, None, None).unwrap();
         canvas.present();
-
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => std::process::exit(0),
-                Event::KeyDown { keycode, .. } => {
-                    if let Some(&key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
-                        keyboard.press_key(key);
-                    }
+        event_pump.poll_iter().for_each(|event| match event {
+            Event::KeyDown {
+                keycode: Some(Keycode::Escape),
+                ..
+            } => std::process::exit(0),
+            Event::KeyDown { keycode, .. } => {
+                if let Some(&key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                    keyboard.press_key(key);
                 }
-                Event::KeyUp { keycode, .. } => {
-                    if let Some(&key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
-                        keyboard.release_key(key);
-                    }
-                }
-                _ => { /* do nothing */ }
             }
-        }
+            Event::KeyUp { keycode, .. } => {
+                if let Some(&key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                    keyboard.release_key(key);
+                }
+            }
+            _ => {}
+        })
     })
 }

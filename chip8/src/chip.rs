@@ -27,6 +27,8 @@ pub struct Chip8 {
 }
 
 impl Chip8 {
+    const TICKS_PER_FRAME: u8 = 15;
+
     pub fn new(rom: Rom) -> Chip8 {
         Chip8 {
             memory: Memory::new(rom.content()),
@@ -65,44 +67,59 @@ impl Chip8 {
         F: FnMut(&mut Keyboard, &Display),
     {
         loop {
+            for _ in 0..Self::TICKS_PER_FRAME {
+                self.execute();
+            }
+            self.dt_register.tick();
+            self.st_register.tick();
             callback(&mut self.keyboard, &self.display);
-            let instruction = self.next_instruction();
-            match instruction.nibbles() {
-                (0, _, 0xE, 0) => self.cls(),
-                (0, _, 0xE, 0xE) => self.ret(),
-                (0 | 1, _, _, _) => self.jp_addr(instruction),
-                (2, _, _, _) => self.call_addr(instruction),
-                (3, _, _, _) => self.se_vx_byte(instruction),
-                (4, _, _, _) => self.sne_vx_byte(instruction),
-                (5, _, _, _) => self.se_vx_vy(instruction),
-                (6, _, _, _) => self.ld_vx_byte(instruction),
-                (7, _, _, _) => self.add_vx_byte(instruction),
-                (8, _, _, 0) => self.ld_vx_vy(instruction),
-                (8, _, _, 1) => self.or_vx_vy(instruction),
-                (8, _, _, 2) => self.and_vx_vy(instruction),
-                (8, _, _, 3) => self.xor_vx_vy(instruction),
-                (8, _, _, 4) => self.add_vx_vy(instruction),
-                (8, _, _, 5) => self.sub_vx_vy(instruction),
-                (8, _, _, 6) => self.shr_vx(instruction),
-                (8, _, _, 7) => self.subn_vx_vy(instruction),
-                (8, _, _, 0xE) => self.shl_vx(instruction),
-                (9, _, _, _) => self.sne_vx_vy(instruction),
-                (0xA, _, _, _) => self.ld_i_addr(instruction),
-                (0xB, _, _, _) => self.jp_vo_addr(instruction),
-                (0xC, _, _, _) => self.rnd_vx_byte(instruction),
-                (0xD, _, _, _) => self.drw_vx_vy_n(instruction),
-                (0xE, _, 0x9, 0xE) => self.skp_vx(instruction),
-                (0xE, _, 0xA, 1) => self.sknp_vx(instruction),
-                (0xF, _, 0, 7) => self.ld_vx_dt(instruction),
-                (0xF, _, 0, 0xA) => self.ld_vx_k(instruction),
-                (0xF, _, 1, 5) => self.ld_dt_vx(instruction),
-                (0xF, _, 1, 8) => self.ld_st_vx(instruction),
-                (0xF, _, 1, 0xE) => self.add_i_vx(instruction),
-                (0xF, _, 2, 9) => self.ld_f_vx(instruction),
-                (0xF, _, 3, 3) => self.ld_b_vx(instruction),
-                (0xF, _, 5, 5) => self.ld_i_vx(instruction),
-                (0xF, _, 6, 5) => self.ld_vx_i(instruction),
-                bytes => panic!("Unknown instruction - 0x{bytes:?}",),
+        }
+    }
+
+    fn execute(&mut self) {
+        let instruction = self.next_instruction();
+        match instruction.nibbles() {
+            (0, _, 0xE, 0) => self.cls(),
+            (0, _, 0xE, 0xE) => self.ret(),
+            (0 | 1, _, _, _) => self.jp_addr(instruction),
+            (2, _, _, _) => self.call_addr(instruction),
+            (3, _, _, _) => self.se_vx_byte(instruction),
+            (4, _, _, _) => self.sne_vx_byte(instruction),
+            (5, _, _, _) => self.se_vx_vy(instruction),
+            (6, _, _, _) => self.ld_vx_byte(instruction),
+            (7, _, _, _) => self.add_vx_byte(instruction),
+            (8, _, _, 0) => self.ld_vx_vy(instruction),
+            (8, _, _, 1) => self.or_vx_vy(instruction),
+            (8, _, _, 2) => self.and_vx_vy(instruction),
+            (8, _, _, 3) => self.xor_vx_vy(instruction),
+            (8, _, _, 4) => self.add_vx_vy(instruction),
+            (8, _, _, 5) => self.sub_vx_vy(instruction),
+            (8, _, _, 6) => self.shr_vx(instruction),
+            (8, _, _, 7) => self.subn_vx_vy(instruction),
+            (8, _, _, 0xE) => self.shl_vx(instruction),
+            (9, _, _, _) => self.sne_vx_vy(instruction),
+            (0xA, _, _, _) => self.ld_i_addr(instruction),
+            (0xB, _, _, _) => self.jp_vo_addr(instruction),
+            (0xC, _, _, _) => self.rnd_vx_byte(instruction),
+            (0xD, _, _, _) => self.drw_vx_vy_n(instruction),
+            (0xE, _, 0x9, 0xE) => self.skp_vx(instruction),
+            (0xE, _, 0xA, 1) => self.sknp_vx(instruction),
+            (0xF, _, 0, 7) => self.ld_vx_dt(instruction),
+            (0xF, _, 0, 0xA) => self.ld_vx_k(instruction),
+            (0xF, _, 1, 5) => self.ld_dt_vx(instruction),
+            (0xF, _, 1, 8) => self.ld_st_vx(instruction),
+            (0xF, _, 1, 0xE) => self.add_i_vx(instruction),
+            (0xF, _, 2, 9) => self.ld_f_vx(instruction),
+            (0xF, _, 3, 3) => self.ld_b_vx(instruction),
+            (0xF, _, 5, 5) => self.ld_i_vx(instruction),
+            (0xF, _, 6, 5) => self.ld_vx_i(instruction),
+            bytes => {
+                let lo_byte = bytes.3 + (bytes.2 << 4);
+                let hi_byte = bytes.1 + (bytes.0 << 4);
+                panic!(
+                    "Unknown instruction - 0x{:04X}",
+                    u16::from_be_bytes([hi_byte, lo_byte])
+                )
             }
         }
     }
