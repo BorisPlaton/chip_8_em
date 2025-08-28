@@ -64,7 +64,7 @@ impl Chip8 {
 
     pub fn run<F>(&mut self, mut callback: F)
     where
-        F: FnMut(&mut Keyboard, &Display),
+        F: FnMut(&mut Keyboard, &Display, u8),
     {
         loop {
             for _ in 0..Self::TICKS_PER_FRAME {
@@ -72,7 +72,7 @@ impl Chip8 {
             }
             self.dt_register.tick();
             self.st_register.tick();
-            callback(&mut self.keyboard, &self.display);
+            callback(&mut self.keyboard, &self.display, self.st_register.get());
         }
     }
 
