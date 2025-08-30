@@ -1,29 +1,31 @@
 use crate::chip::init_chip8;
+use crate::devices::audio::AudioDevice;
 use crate::devices::display::DisplayDevice;
 use crate::devices::keyboard::KeyboardDevice;
+use chip8::display::Display;
 
 mod chip;
 mod devices;
 
 fn main() {
-    let sdl_context = sdl2::init().unwrap();
-
     let mut chip8 = init_chip8("./roms/slipperyslope.ch8".to_string());
-    let mut display_device = DisplayDevice::new(&sdl_context, "CHIP-8", 64, 32, 10);
+
+    let sdl_context = sdl2::init().unwrap();
+    let audio_device = AudioDevice::new(&sdl_context);
     let mut keyboard_device = KeyboardDevice::new(&sdl_context);
+    let mut display_device = DisplayDevice::new(
+        &sdl_context,
+        "CHIP-8",
+        Display::WIDTH as u32,
+        Display::HEIGHT as u32,
+        10,
+    );
 
     chip8.run(|keyboard, display, st_register_val| {
         display_device.draw(display);
-
-        // if st_register_val > 0 {
-        //     device.resume();
-        // } else {
-        //     device.pause();
-        // }
-
+        audio_device.play_sound(st_register_val);
         keyboard_device
             .keys_state()
-            .unwrap_or_else(|_| std::process::exit(0))
             .iter()
             .enumerate()
             .for_each(|(key, &is_pressed)| {
@@ -33,5 +35,5 @@ fn main() {
                     keyboard.release_key(key as u8);
                 }
             });
-    })
+    });
 }

@@ -13,29 +13,29 @@ impl Default for Display {
 }
 
 impl Display {
-    const DISPLAY_WIDTH: usize = 64;
-    const DISPLAY_HEIGHT: usize = 32;
+    pub const WIDTH: usize = 64;
+    pub const HEIGHT: usize = 32;
 
     pub fn draw_sprite(&mut self, mut x: usize, mut y: usize, sprite: &[u8]) -> PixelErased {
         let mut pixel_erased = false;
-        x %= Self::DISPLAY_WIDTH;
-        y %= Self::DISPLAY_HEIGHT;
+        x %= Self::WIDTH;
+        y %= Self::HEIGHT;
 
         for row in 0..sprite.len() {
             let y_cord = y + row;
 
-            if y_cord >= Self::DISPLAY_HEIGHT {
+            if y_cord >= Self::HEIGHT {
                 break;
             }
 
             for col in 0..8 {
                 let x_cord = x + col;
 
-                if x_cord >= Self::DISPLAY_WIDTH {
+                if x_cord >= Self::WIDTH {
                     break;
                 }
 
-                let coord = x_cord + y_cord * Self::DISPLAY_WIDTH;
+                let coord = x_cord + y_cord * Self::WIDTH;
                 let is_display_pixel_set = self.buffer[coord];
                 self.buffer[coord] ^= ((sprite[row] >> (7 - col)) & 1) == 1;
 

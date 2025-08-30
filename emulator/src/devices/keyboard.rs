@@ -53,19 +53,29 @@ impl KeyboardDevice {
         KeyboardDevice { event_pump, keymap }
     }
 
-    pub fn keys_state(&mut self) -> Result<[bool; 16], ()> {
+    pub fn keys_state(&mut self) -> [bool; 16] {
         let mut keys_state = [false; 16];
 
-        self.event_pump
+        if let Some(_) = self
+            .event_pump
             .poll_iter()
             .filter(|event| {
-                if let Event::Quit { .. } = event {
-                    return true;
+                if let Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } = event
+                {
+                    true
+                } else {
+                    false
                 }
-                return false;
             })
             .next()
-            .ok_or(())?;
+        {
+            std::process::exit(0)
+        }
+
         self.event_pump
             .keyboard_state()
             .pressed_scancodes()
@@ -76,6 +86,6 @@ impl KeyboardDevice {
                 };
             });
 
-        Ok(keys_state)
+        keys_state
     }
 }
