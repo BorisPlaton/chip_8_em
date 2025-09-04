@@ -1,3 +1,5 @@
+use crate::modes::ChipMode;
+
 // http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#2.1
 //
 // Memory Map:
@@ -23,23 +25,36 @@
 // | Reserved for  |
 // |  interpreter  |
 // +---------------+= 0x000 (0) Start of Chip-8 RAM
-pub struct Memory {
+pub struct Memory<'a> {
     map: [u8; 4096],
+    mode: &'a ChipMode,
+    rpl_flags: [u8; 8],
 }
 
-impl Memory {
+pub enum FontSize {
+    Standard,
+    Extended,
+}
+
+impl<'a> Memory<'a> {
     const RESERVED_ADDR_START: u16 = 0;
     pub const PROGRAM_ADDR_START: u16 = 0x200;
     pub const MEMORY_SIZE: u16 = 0xFFF;
 
-    pub fn new(program: &[u8]) -> Memory {
-        let mut mem = Self::default();
+    pub fn new(program: &[u8], mode: &'a ChipMode) -> Memory<'a> {
+        let mut memory = Memory {
+            map: [0; 4096],
+            rpl_flags: [0; 8],
+            mode,
+        };
+
+        memory.load_font_sprites();
 
         program.iter().enumerate().for_each(|(i, &byte)| {
-            mem.map[Self::PROGRAM_ADDR_START as usize + i] = byte;
+            memory.map[Self::PROGRAM_ADDR_START as usize + i] = byte;
         });
 
-        mem
+        memory
     }
 
     pub fn write(&mut self, addr: u16, val: u8) {
@@ -50,9 +65,7 @@ impl Memory {
                     addr
                 );
             }
-            Memory::PROGRAM_ADDR_START..=Memory::MEMORY_SIZE => {
-                self.map[addr as usize] = val;
-            }
+            Memory::PROGRAM_ADDR_START..=Memory::MEMORY_SIZE => self.map[addr as usize] = val,
             _ => panic!(
                 "Attempted to write to the out-of-bound address: {:04x}",
                 addr
@@ -67,15 +80,30 @@ impl Memory {
         self.map[addr as usize]
     }
 
-    pub fn get_font_digit_address(&self, digit: u8) -> u16 {
-        if digit > 0xF {
-            panic!("Font digit {digit} doesn't exist.");
+    pub fn get_font_address(&self, digit: u8, size: FontSize) -> u16 {
+        match (self.mode, size, digit) {
+            (_, FontSize::Standard, _) if digit <= 0xF => (digit * 5) as u16,
+            (ChipMode::SuperChip, FontSize::Extended, _) if digit <= 9 => {
+                (0xF * 5 + digit * 10) as u16
+            }
+            _ => panic!("Invalid font sprite {digit} for mode {}", self.mode),
         }
-        (digit * 5) as u16
+    }
+
+    pub fn write_rpl_flags(&mut self, flags: &[u8]) {
+        flags.iter().enumerate().for_each(|(i, &flag)| {
+            self.rpl_flags[i] = flag;
+        });
+    }
+
+    pub fn read_rpl_flags(&mut self) -> &[u8] {
+        &self.rpl_flags
     }
 
     fn load_font_sprites(&mut self) {
-        [
+        let mut font_sprites = vec![];
+
+        font_sprites.extend_from_slice(&[
             0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
             0x20, 0x60, 0x20, 0x20, 0x70, // 1
             0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
@@ -92,19 +120,25 @@ impl Memory {
             0xE0, 0x90, 0x90, 0x90, 0xE0, // D
             0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
             0xF0, 0x80, 0xF0, 0x80, 0x80, // F
-        ]
-        .into_iter()
-        .enumerate()
-        .for_each(|(i, val)| {
+        ]);
+
+        if self.mode == &ChipMode::SuperChip {
+            font_sprites.extend_from_slice(&[
+                0xFC, 0x84, 0x84, 0x84, 0x84, 0x84, 0x84, 0x84, 0xFC, 0x00, // 0
+                0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00, // 1
+                0xFC, 0x84, 0x04, 0x04, 0xFC, 0x80, 0x80, 0x80, 0xFC, 0x00, // 2
+                0xFC, 0x84, 0x04, 0x04, 0x3C, 0x04, 0x04, 0x84, 0xFC, 0x00, // 3
+                0x84, 0x84, 0x84, 0x84, 0xFC, 0x04, 0x04, 0x04, 0x04, 0x00, // 4
+                0xFC, 0x80, 0x80, 0x80, 0xFC, 0x04, 0x04, 0x04, 0xFC, 0x00, // 5
+                0xFC, 0x80, 0x80, 0x80, 0xFC, 0x84, 0x84, 0x84, 0xFC, 0x00, // 6
+                0xFC, 0x84, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x00, // 7
+                0xFC, 0x84, 0x84, 0x84, 0xFC, 0x84, 0x84, 0x84, 0xFC, 0x00, // 8
+                0xFC, 0x84, 0x84, 0x84, 0xFC, 0x04, 0x04, 0x04, 0xFC, 0x00, // 9
+            ]);
+        };
+
+        font_sprites.into_iter().enumerate().for_each(|(i, val)| {
             self.map[i] = val;
         })
-    }
-}
-
-impl Default for Memory {
-    fn default() -> Self {
-        let mut memory = Memory { map: [0; 4096] };
-        memory.load_font_sprites();
-        memory
     }
 }

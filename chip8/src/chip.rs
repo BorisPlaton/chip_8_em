@@ -1,15 +1,16 @@
 use crate::display::Display;
 use crate::instruction::Instruction;
 use crate::keyboard::Keyboard;
-use crate::memory::Memory;
+use crate::memory::{FontSize, Memory};
+use crate::modes::ChipMode;
 use crate::registers::memory::MemoryRegister;
 use crate::registers::timer::TimerRegister;
 use crate::rom::Rom;
 use crate::stack::Stack;
 use std::collections::HashMap;
 
-pub struct Chip8 {
-    memory: Memory,
+pub struct Chip8<'a> {
+    memory: Memory<'a>,
     stack: Stack,
     display: Display,
     keyboard: Keyboard,
@@ -24,14 +25,15 @@ pub struct Chip8 {
     st_register: TimerRegister,
     /// PC is used to store the currently executing address.
     program_counter: u16,
+    mode: &'a ChipMode,
 }
 
-impl Chip8 {
-    const TICKS_PER_FRAME: u8 = 15;
+impl<'a> Chip8<'a> {
+    const TICKS_PER_FRAME: u16 = 1000;
 
-    pub fn new(rom: Rom) -> Chip8 {
+    pub fn new(rom: Rom, mode: &'a ChipMode) -> Chip8<'a> {
         Chip8 {
-            memory: Memory::new(rom.content()),
+            memory: Memory::new(rom.content(), mode),
             stack: Stack::default(),
             display: Display::default(),
             keyboard: Keyboard::default(),
@@ -59,6 +61,7 @@ impl Chip8 {
                 registers.insert(0xF, 0);
                 registers
             },
+            mode,
         }
     }
 
@@ -78,50 +81,66 @@ impl Chip8 {
 
     fn execute(&mut self) {
         let instruction = self.next_instruction();
-        match instruction.nibbles() {
-            (0, _, 0xE, 0) => self.cls(),
-            (0, _, 0xE, 0xE) => self.ret(),
-            (0 | 1, _, _, _) => self.jp_addr(instruction),
-            (2, _, _, _) => self.call_addr(instruction),
-            (3, _, _, _) => self.se_vx_byte(instruction),
-            (4, _, _, _) => self.sne_vx_byte(instruction),
-            (5, _, _, _) => self.se_vx_vy(instruction),
-            (6, _, _, _) => self.ld_vx_byte(instruction),
-            (7, _, _, _) => self.add_vx_byte(instruction),
-            (8, _, _, 0) => self.ld_vx_vy(instruction),
-            (8, _, _, 1) => self.or_vx_vy(instruction),
-            (8, _, _, 2) => self.and_vx_vy(instruction),
-            (8, _, _, 3) => self.xor_vx_vy(instruction),
-            (8, _, _, 4) => self.add_vx_vy(instruction),
-            (8, _, _, 5) => self.sub_vx_vy(instruction),
-            (8, _, _, 6) => self.shr_vx(instruction),
-            (8, _, _, 7) => self.subn_vx_vy(instruction),
-            (8, _, _, 0xE) => self.shl_vx(instruction),
-            (9, _, _, _) => self.sne_vx_vy(instruction),
-            (0xA, _, _, _) => self.ld_i_addr(instruction),
-            (0xB, _, _, _) => self.jp_vo_addr(instruction),
-            (0xC, _, _, _) => self.rnd_vx_byte(instruction),
-            (0xD, _, _, _) => self.drw_vx_vy_n(instruction),
-            (0xE, _, 0x9, 0xE) => self.skp_vx(instruction),
-            (0xE, _, 0xA, 1) => self.sknp_vx(instruction),
-            (0xF, _, 0, 7) => self.ld_vx_dt(instruction),
-            (0xF, _, 0, 0xA) => self.ld_vx_k(instruction),
-            (0xF, _, 1, 5) => self.ld_dt_vx(instruction),
-            (0xF, _, 1, 8) => self.ld_st_vx(instruction),
-            (0xF, _, 1, 0xE) => self.add_i_vx(instruction),
-            (0xF, _, 2, 9) => self.ld_f_vx(instruction),
-            (0xF, _, 3, 3) => self.ld_b_vx(instruction),
-            (0xF, _, 5, 5) => self.ld_i_vx(instruction),
-            (0xF, _, 6, 5) => self.ld_vx_i(instruction),
-            bytes => {
+        match (&self.mode, instruction.nibbles()) {
+            (ChipMode::SuperChip, (0, 0, 0xC, n)) if n > 0 => self.scroll_n_lines_down(instruction),
+            (_, (0, 0, 0xE, 0)) => self.cls(),
+            (_, (0, 0, 0xE, 0xE)) => self.ret(),
+            (ChipMode::SuperChip, (0, 0, 0xF, 0xB)) => self.scroll_display_4_px_right(),
+            (ChipMode::SuperChip, (0, 0, 0xF, 0xC)) => self.scroll_display_4_px_left(),
+            (ChipMode::SuperChip, (0, 0, 0xF, 0xD)) => self.exit_interpreter(),
+            (ChipMode::SuperChip, (0, 0, 0xF, 0xE)) => self.disable_display_extended_mode(),
+            (ChipMode::SuperChip, (0, 0, 0xF, 0xF)) => self.enable_display_extended_mode(),
+            (ChipMode::Chip8, (0, _, _, _)) => self.jp_addr(instruction),
+            (_, (1, ..)) => self.jp_addr(instruction),
+            (_, (2, ..)) => self.call_addr(instruction),
+            (_, (3, ..)) => self.se_vx_byte(instruction),
+            (_, (4, ..)) => self.sne_vx_byte(instruction),
+            (_, (5, ..)) => self.se_vx_vy(instruction),
+            (_, (6, ..)) => self.ld_vx_byte(instruction),
+            (_, (7, ..)) => self.add_vx_byte(instruction),
+            (_, (8, .., 0)) => self.ld_vx_vy(instruction),
+            (_, (8, .., 1)) => self.or_vx_vy(instruction),
+            (_, (8, .., 2)) => self.and_vx_vy(instruction),
+            (_, (8, .., 3)) => self.xor_vx_vy(instruction),
+            (_, (8, .., 4)) => self.add_vx_vy(instruction),
+            (_, (8, .., 5)) => self.sub_vx_vy(instruction),
+            (_, (8, .., 6)) => self.shr_vx(instruction),
+            (_, (8, .., 7)) => self.subn_vx_vy(instruction),
+            (_, (8, .., 0xE)) => self.shl_vx(instruction),
+            (_, (9, ..)) => self.sne_vx_vy(instruction),
+            (_, (0xA, ..)) => self.ld_i_addr(instruction),
+            (_, (0xB, ..)) => self.jp_vo_addr(instruction),
+            (_, (0xC, ..)) => self.rnd_vx_byte(instruction),
+            (_, (0xD, ..)) => self.drw_vx_vy_n(instruction),
+            (_, (0xE, _, 0x9, 0xE)) => self.skp_vx(instruction),
+            (_, (0xE, _, 0xA, 1)) => self.sknp_vx(instruction),
+            (_, (0xF, _, 0, 7)) => self.ld_vx_dt(instruction),
+            (_, (0xF, _, 0, 0xA)) => self.ld_vx_k(instruction),
+            (_, (0xF, _, 1, 5)) => self.ld_dt_vx(instruction),
+            (_, (0xF, _, 1, 8)) => self.ld_st_vx(instruction),
+            (_, (0xF, _, 1, 0xE)) => self.add_i_vx(instruction),
+            (_, (0xF, _, 2, 9)) => self.ld_f_vx(instruction),
+            (ChipMode::SuperChip, (0xF, _, 3, 0)) => self.load_10_byte_font_to_i(instruction),
+            (_, (0xF, _, 3, 3)) => self.ld_b_vx(instruction),
+            (_, (0xF, _, 5, 5)) => self.ld_i_vx(instruction),
+            (_, (0xF, _, 6, 5)) => self.ld_vx_i(instruction),
+            (ChipMode::SuperChip, (0xF, x, 7, 5)) if x <= 7 => self.load_rpl_flags(instruction),
+            (ChipMode::SuperChip, (0xF, x, 8, 5)) if x <= 7 => self.read_rpl_flags(instruction),
+            (_, bytes) => {
                 let lo_byte = bytes.3 + (bytes.2 << 4);
                 let hi_byte = bytes.1 + (bytes.0 << 4);
                 panic!(
-                    "Unknown instruction - 0x{:04X}",
-                    u16::from_be_bytes([hi_byte, lo_byte])
+                    "Unknown instruction 0x{:04X} for {}",
+                    u16::from_be_bytes([hi_byte, lo_byte]),
+                    self.mode,
                 )
             }
         }
+    }
+
+    /// 00CN - Scroll display N lines down
+    fn scroll_n_lines_down(&mut self, instruction: Instruction) {
+        self.display.scroll_n_lines_down(instruction.n());
     }
 
     /// 00E0 - CLS
@@ -137,6 +156,31 @@ impl Chip8 {
     /// then subtracts 1 from the stack pointer.
     fn ret(&mut self) {
         self.program_counter = self.stack.pull();
+    }
+
+    /// 00FB - Scroll display 4 pixels right
+    fn scroll_display_4_px_right(&mut self) {
+        self.display.scroll_4_px_right();
+    }
+
+    /// 00FC - Scroll display 4 pixels left
+    fn scroll_display_4_px_left(&mut self) {
+        self.display.scroll_4_px_left();
+    }
+
+    /// 00FD - Exit interpreter
+    fn exit_interpreter(&self) {
+        std::process::exit(0);
+    }
+
+    /// 00FE - Disable extended screen mode for full-screen graphics.
+    fn disable_display_extended_mode(&mut self) {
+        self.display.disable_extended_mode();
+    }
+
+    /// 00FF - Enable extended screen mode for full-screen graphics.
+    fn enable_display_extended_mode(&mut self) {
+        self.display.enable_extended_mode();
     }
 
     /// 1nnn - JP addr
@@ -163,8 +207,8 @@ impl Chip8 {
     /// The interpreter compares register Vx to kk, and if they are equal, increments
     /// the program counter by 2.
     fn se_vx_byte(&mut self, instruction: Instruction) {
-        let register_x = self.registers.get(&instruction.x()).unwrap();
-        if register_x == &instruction.kk() {
+        let register_x = self.registers[&instruction.x()];
+        if register_x == instruction.kk() {
             self.program_counter += 2;
         }
     }
@@ -175,8 +219,8 @@ impl Chip8 {
     /// The interpreter compares register Vx to kk, and if they are not equal, increments
     /// the program counter by 2.
     fn sne_vx_byte(&mut self, instruction: Instruction) {
-        let register_x = self.registers.get(&instruction.x()).unwrap();
-        if register_x != &instruction.kk() {
+        let register_x = self.registers[&instruction.x()];
+        if register_x != instruction.kk() {
             self.program_counter += 2;
         }
     }
@@ -187,8 +231,8 @@ impl Chip8 {
     /// The interpreter compares register Vx to register Vy, and if they are equal,
     /// increments the program counter by 2.
     fn se_vx_vy(&mut self, instruction: Instruction) {
-        let register_x = self.registers.get(&instruction.x()).unwrap();
-        let register_y = self.registers.get(&instruction.y()).unwrap();
+        let register_x = self.registers[&instruction.x()];
+        let register_y = self.registers[&instruction.y()];
         if register_x == register_y {
             self.program_counter += 2;
         }
@@ -207,7 +251,7 @@ impl Chip8 {
     ///
     /// Adds the value kk to the value of register Vx, then stores the result in Vx.
     fn add_vx_byte(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        let register_x = self.registers[&instruction.x()];
         self.registers
             .insert(instruction.x(), register_x.wrapping_add(instruction.kk()));
     }
@@ -217,7 +261,7 @@ impl Chip8 {
     ///
     /// Stores the value of register Vy in register Vx.
     fn ld_vx_vy(&mut self, instruction: Instruction) {
-        let register_y = *self.registers.get(&instruction.y()).unwrap();
+        let register_y = self.registers[&instruction.y()];
         self.registers.insert(instruction.x(), register_y);
     }
 
@@ -228,10 +272,13 @@ impl Chip8 {
     /// A bitwise OR compares the corresponding bits from two values, and if either bit is 1,
     /// then the same bit in the result is also 1. Otherwise, it is 0.
     fn or_vx_vy(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
-        let register_y = *self.registers.get(&instruction.y()).unwrap();
+        let register_x = self.registers[&instruction.x()];
+        let register_y = self.registers[&instruction.y()];
         self.registers
             .insert(instruction.x(), register_x | register_y);
+        if self.mode == &ChipMode::Chip8 {
+            self.registers.insert(0xF, 0);
+        }
     }
 
     /// 8xy2 - AND Vx, Vy
@@ -241,10 +288,13 @@ impl Chip8 {
     /// A bitwise AND compares the corresponding bits from two values, and if both bits are 1,
     /// then the same bit in the result is also 1. Otherwise, it is 0.
     fn and_vx_vy(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
-        let register_y = *self.registers.get(&instruction.y()).unwrap();
+        let register_x = self.registers[&instruction.x()];
+        let register_y = self.registers[&instruction.y()];
         self.registers
             .insert(instruction.x(), register_x & register_y);
+        if self.mode == &ChipMode::Chip8 {
+            self.registers.insert(0xF, 0);
+        }
     }
 
     /// 8xy3 - XOR Vx, Vy
@@ -255,10 +305,13 @@ impl Chip8 {
     /// bits are not both the same, then the corresponding bit in the result is set to 1.
     /// Otherwise, it is 0.
     fn xor_vx_vy(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
-        let register_y = *self.registers.get(&instruction.y()).unwrap();
+        let register_x = self.registers[&instruction.x()];
+        let register_y = self.registers[&instruction.y()];
         self.registers
             .insert(instruction.x(), register_x ^ register_y);
+        if self.mode == &ChipMode::Chip8 {
+            self.registers.insert(0xF, 0);
+        }
     }
 
     /// 8xy4 - ADD Vx, Vy
@@ -268,8 +321,8 @@ impl Chip8 {
     /// (i.e., > 255) VF is set to 1, otherwise 0. Only the lowest 8 bits of the result
     /// are kept, and stored in Vx.
     fn add_vx_vy(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
-        let register_y = *self.registers.get(&instruction.y()).unwrap();
+        let register_x = self.registers[&instruction.x()];
+        let register_y = self.registers[&instruction.y()];
         let (result, carry_flag) = register_x.overflowing_add(register_y);
         self.registers.insert(instruction.x(), result);
         self.registers.insert(0xF, carry_flag as u8);
@@ -281,14 +334,12 @@ impl Chip8 {
     /// If Vx > Vy, then VF is set to 1, otherwise 0. Then Vy is subtracted from Vx, and
     /// the results stored in Vx.
     fn sub_vx_vy(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
-        let register_y = *self.registers.get(&instruction.y()).unwrap();
+        let register_x = self.registers[&instruction.x()];
+        let register_y = self.registers[&instruction.y()];
         self.registers
             .insert(instruction.x(), register_x.wrapping_sub(register_y));
         self.registers.insert(0xF, (register_x >= register_y) as u8);
     }
-
-    // https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#8xy6-and-8xye-shift
 
     /// 8xy6 - SHR Vx {, Vy}
     /// Set Vx = Vx SHR 1.
@@ -296,9 +347,12 @@ impl Chip8 {
     /// If the least-significant bit of Vx is 1, then VF is set to 1, otherwise 0. Then
     /// Vx is divided by 2.
     fn shr_vx(&mut self, instruction: Instruction) {
-        let register_y = *self.registers.get(&instruction.y()).unwrap();
-        self.registers.insert(instruction.x(), register_y >> 1);
-        self.registers.insert(0xF, register_y & 1);
+        let register_value = self.registers[&match self.mode {
+            ChipMode::Chip8 => instruction.y(),
+            ChipMode::SuperChip => instruction.x(),
+        }];
+        self.registers.insert(instruction.x(), register_value >> 1);
+        self.registers.insert(0xF, register_value & 1);
     }
 
     /// 8xy7 - SUBN Vx, Vy
@@ -307,14 +361,12 @@ impl Chip8 {
     /// If Vy > Vx, then VF is set to 1, otherwise 0. Then Vx is subtracted from Vy, and
     /// the results stored in Vx.
     fn subn_vx_vy(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
-        let register_y = *self.registers.get(&instruction.y()).unwrap();
+        let register_x = self.registers[&instruction.x()];
+        let register_y = self.registers[&instruction.y()];
         self.registers
             .insert(instruction.x(), register_y.wrapping_sub(register_x));
         self.registers.insert(0xF, (register_y >= register_x) as u8);
     }
-
-    // https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#8xy6-and-8xye-shift
 
     /// 8xyE - SHL Vx {, Vy}
     /// Set Vx = Vx SHL 1.
@@ -322,10 +374,19 @@ impl Chip8 {
     /// If the most-significant bit of Vx is 1, then VF is set to 1, otherwise to 0.
     /// Then Vx is multiplied by 2.
     fn shl_vx(&mut self, instruction: Instruction) {
-        let register_y = *self.registers.get(&instruction.y()).unwrap();
-        self.registers.insert(instruction.x(), register_y << 1);
-        self.registers
-            .insert(0xF, if register_y & 0b1000_0000 != 0 { 1 } else { 0 });
+        let register_value = self.registers[&match self.mode {
+            ChipMode::Chip8 => instruction.y(),
+            ChipMode::SuperChip => instruction.x(),
+        }];
+        self.registers.insert(instruction.x(), register_value << 1);
+        self.registers.insert(
+            0xF,
+            if register_value & 0b1000_0000 != 0 {
+                1
+            } else {
+                0
+            },
+        );
     }
 
     /// 9xy0 - SNE Vx, Vy
@@ -334,8 +395,8 @@ impl Chip8 {
     /// The values of Vx and Vy are compared, and if they are not equal, the program
     /// counter is increased by 2.
     fn sne_vx_vy(&mut self, instruction: Instruction) {
-        let register_x = self.registers.get(&instruction.x()).unwrap();
-        let register_y = self.registers.get(&instruction.y()).unwrap();
+        let register_x = self.registers[&instruction.x()];
+        let register_y = self.registers[&instruction.y()];
         if register_x != register_y {
             self.program_counter += 2;
         }
@@ -349,15 +410,23 @@ impl Chip8 {
         self.i_register.set(instruction.nnn());
     }
 
-    // https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#bnnn-jump-with-offset
-
+    /// *CHIP-8*
     /// Bnnn - JP V0, addr
-    /// Jump to location nnn + V0.
+    /// Jump to address nnn + V0.
     ///
     /// The program counter is set to nnn plus the value of V0.
+    ///
+    /// *SCHIP*
+    /// Bxnn - JP Vx, addr
+    /// Jump to address XNN + vX
+    ///
+    /// The program counter is set to xnn plus the value of Vx.
     fn jp_vo_addr(&mut self, instruction: Instruction) {
-        let register_0 = *self.registers.get(&0).unwrap();
-        self.program_counter = instruction.nnn() + register_0 as u16;
+        let register_val = self.registers[&match &self.mode {
+            ChipMode::Chip8 => 0,
+            ChipMode::SuperChip => instruction.x(),
+        }];
+        self.program_counter = instruction.nnn() + register_val as u16;
     }
 
     /// Cxkk - RND Vx, byte
@@ -366,13 +435,16 @@ impl Chip8 {
     /// The interpreter generates a random number from 0 to 255, which is then
     /// ANDed with the value kk. The results are stored in Vx.
     fn rnd_vx_byte(&mut self, instruction: Instruction) {
-        let random_byte = rand::random::<u8>();
         self.registers
-            .insert(instruction.x(), random_byte & instruction.kk());
+            .insert(instruction.x(), rand::random::<u8>() & instruction.kk());
     }
 
+    /// *CHIP-8*
     /// Dxyn - DRW Vx, Vy, nibble
     /// Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision.
+    ///
+    /// *SCHIP*
+    /// If N=0 and extended mode, show 16x16 sprite.
     ///
     /// The interpreter reads n bytes from memory, starting at the address stored
     /// in I. These bytes are then displayed as sprites on screen at coordinates (Vx, Vy).
@@ -381,15 +453,32 @@ impl Chip8 {
     /// so part of it is outside the coordinates of the display, it wraps around to
     /// the opposite side of the screen.
     fn drw_vx_vy_n(&mut self, instruction: Instruction) {
-        let sprite_bytes: Vec<_> = (0..instruction.n())
-            .into_iter()
-            .map(|i| self.memory.read(self.i_register.add(i as u16)))
-            .collect();
-        let pixel_erased = self.display.draw_sprite(
-            *self.registers.get(&instruction.x()).unwrap() as usize,
-            *self.registers.get(&instruction.y()).unwrap() as usize,
-            &sprite_bytes,
-        );
+        let pixel_erased = if instruction.n() == 0 && self.display.is_extended_mode() {
+            let sprite_bytes = (0..32u16)
+                .into_iter()
+                .map(|i| self.memory.read(self.i_register.add(i)))
+                .collect::<Vec<u8>>()
+                .chunks_exact(2)
+                .map(|sprite_bytes| u16::from_be_bytes(sprite_bytes.try_into().unwrap()))
+                .collect::<Vec<u16>>()
+                .try_into()
+                .unwrap();
+            self.display.draw_16_16_sprite(
+                self.registers[&instruction.x()] as usize,
+                self.registers[&instruction.y()] as usize,
+                sprite_bytes,
+            )
+        } else {
+            let sprite_bytes: Vec<_> = (0..instruction.n() as u16)
+                .into_iter()
+                .map(|i| self.memory.read(self.i_register.add(i)))
+                .collect();
+            self.display.draw_sprite(
+                self.registers[&instruction.x()] as usize,
+                self.registers[&instruction.y()] as usize,
+                &sprite_bytes,
+            )
+        };
         self.registers.insert(0xF, pixel_erased as u8);
     }
 
@@ -399,7 +488,7 @@ impl Chip8 {
     /// Checks the keyboard, and if the key corresponding to the value of Vx is
     /// currently in the down position, PC is increased by 2.
     fn skp_vx(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        let register_x = self.registers[&instruction.x()];
         if self.keyboard.is_key_pressed(register_x) {
             self.program_counter += 2
         };
@@ -411,7 +500,7 @@ impl Chip8 {
     /// Checks the keyboard, and if the key corresponding to the value of Vx is
     /// currently in the up position, PC is increased by 2.
     fn sknp_vx(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        let register_x = self.registers[&instruction.x()];
         if !self.keyboard.is_key_pressed(register_x) {
             self.program_counter += 2
         };
@@ -444,7 +533,7 @@ impl Chip8 {
     ///
     /// DT is set equal to the value of Vx.
     fn ld_dt_vx(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        let register_x = self.registers[&instruction.x()];
         self.dt_register.set(register_x);
     }
 
@@ -453,7 +542,7 @@ impl Chip8 {
     ///
     /// ST is set equal to the value of Vx.
     fn ld_st_vx(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        let register_x = self.registers[&instruction.x()];
         self.st_register.set(register_x);
     }
 
@@ -462,7 +551,7 @@ impl Chip8 {
     ///
     /// The values of I and Vx are added, and the results are stored in `I`.
     fn add_i_vx(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        let register_x = self.registers[&instruction.x()];
         self.i_register.set(self.i_register.add(register_x as u16));
     }
 
@@ -473,9 +562,16 @@ impl Chip8 {
     /// to the value of Vx. See section 2.4, Display, for more information on the
     /// Chip-8 hexadecimal font.
     fn ld_f_vx(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        let register_x = self.registers[&instruction.x()];
         self.i_register
-            .set(self.memory.get_font_digit_address(register_x));
+            .set(self.memory.get_font_address(register_x, FontSize::Standard));
+    }
+
+    /// Fx30 - Point I to 10-byte font sprite for digit VX (0..9)
+    fn load_10_byte_font_to_i(&mut self, instruction: Instruction) {
+        let register_x = self.registers[&instruction.x()];
+        self.i_register
+            .set(self.memory.get_font_address(register_x, FontSize::Extended));
     }
 
     /// Fx33 - LD B, Vx
@@ -485,14 +581,12 @@ impl Chip8 {
     /// in memory at location in I, the tens digit at location I+1, and the ones
     /// digit at location I+2.
     fn ld_b_vx(&mut self, instruction: Instruction) {
-        let register_x = *self.registers.get(&instruction.x()).unwrap();
+        let register_x = self.registers[&instruction.x()];
         self.memory.write(self.i_register.get(), register_x / 100);
         self.memory
             .write(self.i_register.add(1), (register_x / 10) % 10);
         self.memory.write(self.i_register.add(2), register_x % 10);
     }
-
-    // TODO: https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#fx55-and-fx65-store-and-load-memory
 
     /// Fx55 - LD [I], Vx
     /// Store registers V0 through Vx in memory starting at location I.
@@ -502,11 +596,15 @@ impl Chip8 {
     fn ld_i_vx(&mut self, instruction: Instruction) {
         self.registers
             .iter()
-            .filter(|&(&register, _)| register <= instruction.x())
+            .filter(|(register, _)| register <= &&instruction.x())
             .for_each(|(&register, &value)| {
                 self.memory
                     .write(self.i_register.add(register as u16), value);
             });
+        if self.mode == &ChipMode::Chip8 {
+            self.i_register
+                .set(self.i_register.get() + instruction.x() as u16 + 1);
+        }
     }
 
     /// Fx65 - LD Vx, [I]
@@ -532,6 +630,34 @@ impl Chip8 {
                 self.memory.read(self.i_register.add(register as u16)),
             );
         });
+        if self.mode == &ChipMode::Chip8 {
+            self.i_register
+                .set(self.i_register.get() + instruction.x() as u16 + 1);
+        }
+    }
+
+    /// FX75 - Store V0..VX in RPL user flags (X <= 7)
+    fn load_rpl_flags(&mut self, instruction: Instruction) {
+        self.memory.write_rpl_flags(
+            &self
+                .registers
+                .iter()
+                .filter(|(i, _)| i < &&instruction.x())
+                .map(|(i, _)| self.registers[i])
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    /// FX85 - Read V0..VX from RPL user flags (X <= 7)
+    fn read_rpl_flags(&mut self, instruction: Instruction) {
+        self.memory
+            .read_rpl_flags()
+            .iter()
+            .filter(|x| x < &&instruction.x())
+            .enumerate()
+            .for_each(|(i, &x)| {
+                self.registers.insert(i as u8, x);
+            });
     }
 
     fn next_instruction(&mut self) -> Instruction {

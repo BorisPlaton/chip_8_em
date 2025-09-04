@@ -3,12 +3,13 @@ use crate::devices::audio::AudioDevice;
 use crate::devices::display::DisplayDevice;
 use crate::devices::keyboard::KeyboardDevice;
 use chip8::display::Display;
+use chip8::modes::ChipMode;
 
 mod chip;
 mod devices;
 
 fn main() {
-    let mut chip8 = init_chip8("./roms/slipperyslope.ch8".to_string());
+    let mut chip8 = init_chip8("./roms/dodge.ch8".to_string(), &ChipMode::SuperChip);
 
     let sdl_context = sdl2::init().unwrap();
     let audio_device = AudioDevice::new(&sdl_context);
@@ -16,8 +17,8 @@ fn main() {
     let mut display_device = DisplayDevice::new(
         &sdl_context,
         "CHIP-8",
-        Display::WIDTH as u32,
-        Display::HEIGHT as u32,
+        Display::EXTENDED_WIDTH as u32,
+        Display::EXTENDED_HEIGHT as u32,
         10,
     );
 

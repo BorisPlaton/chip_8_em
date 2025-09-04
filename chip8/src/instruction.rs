@@ -9,6 +9,7 @@
 ///      |        |
 ///    ++++ ++++++++++++++
 ///   `0000_0000_1110_0000`
+#[derive(Debug)]
 pub struct Instruction {
     /// The initial form of received instruction.
     value: u16,

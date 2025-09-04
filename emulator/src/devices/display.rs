@@ -13,7 +13,7 @@ pub struct DisplayDevice {
 }
 
 struct Frame {
-    pixels: [u8; 6144],
+    pixels: [u8; 24576],
 }
 
 impl DisplayDevice {
@@ -46,6 +46,9 @@ impl DisplayDevice {
     }
 
     pub fn draw(&mut self, display: &Display) {
+        self.height = display.height() as u32;
+        self.width = display.width() as u32;
+
         let mut texture = self
             .texture_creator
             .create_texture_target(PixelFormatEnum::RGB24, self.width, self.height)
@@ -63,7 +66,7 @@ impl DisplayDevice {
 
 impl Default for Frame {
     fn default() -> Self {
-        Frame { pixels: [0; 6144] }
+        Frame { pixels: [0; 24576] }
     }
 }
 
