@@ -29,7 +29,7 @@ pub struct Chip8<'a> {
 }
 
 impl<'a> Chip8<'a> {
-    const TICKS_PER_FRAME: u16 = 1000;
+    const TICKS_PER_FRAME: u16 = 950;
 
     pub fn new(rom: Rom, mode: &'a ChipMode) -> Chip8<'a> {
         Chip8 {
@@ -261,8 +261,8 @@ impl<'a> Chip8<'a> {
     ///
     /// Stores the value of register Vy in register Vx.
     fn ld_vx_vy(&mut self, instruction: Instruction) {
-        let register_y = self.registers[&instruction.y()];
-        self.registers.insert(instruction.x(), register_y);
+        self.registers
+            .insert(instruction.x(), self.registers[&instruction.y()]);
     }
 
     /// 8xy1 - OR Vx, Vy
@@ -358,7 +358,7 @@ impl<'a> Chip8<'a> {
     /// 8xy7 - SUBN Vx, Vy
     /// Set Vx = Vy - Vx, set VF = NOT borrow.
     ///
-    /// If Vy > Vx, then VF is set to 1, otherwise 0. Then Vx is subtracted from Vy, and
+    /// If Vy >= Vx, then VF is set to 1, otherwise 0. Then Vx is subtracted from Vy, and
     /// the results stored in Vx.
     fn subn_vx_vy(&mut self, instruction: Instruction) {
         let register_x = self.registers[&instruction.x()];
@@ -567,7 +567,7 @@ impl<'a> Chip8<'a> {
             .set(self.memory.get_font_address(register_x, FontSize::Standard));
     }
 
-    /// Fx30 - Point I to 10-byte font sprite for digit VX (0..9)
+    /// Fx30 - Point I to 10-byte font sprite for digit VX (0..F)
     fn load_10_byte_font_to_i(&mut self, instruction: Instruction) {
         let register_x = self.registers[&instruction.x()];
         self.i_register
@@ -594,13 +594,12 @@ impl<'a> Chip8<'a> {
     /// The interpreter copies the values of registers V0 through Vx into memory,
     /// starting at the address in `I`.
     fn ld_i_vx(&mut self, instruction: Instruction) {
-        self.registers
-            .iter()
-            .filter(|(register, _)| register <= &&instruction.x())
-            .for_each(|(&register, &value)| {
-                self.memory
-                    .write(self.i_register.add(register as u16), value);
-            });
+        (0..=instruction.x()).for_each(|register| {
+            self.memory.write(
+                self.i_register.add(register as u16),
+                *self.registers.get(&register).unwrap(),
+            );
+        });
         if self.mode == &ChipMode::Chip8 {
             self.i_register
                 .set(self.i_register.get() + instruction.x() as u16 + 1);
@@ -613,18 +612,7 @@ impl<'a> Chip8<'a> {
     /// The interpreter reads values from memory starting at location I into
     /// registers V0 through Vx.
     fn ld_vx_i(&mut self, instruction: Instruction) {
-        let registers = self
-            .registers
-            .iter()
-            .filter_map(|(&register, _)| {
-                if register <= instruction.x() {
-                    Some(register)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        registers.iter().for_each(|&register| {
+        (0..=instruction.x()).for_each(|register| {
             self.registers.insert(
                 register,
                 self.memory.read(self.i_register.add(register as u16)),

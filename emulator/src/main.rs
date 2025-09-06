@@ -9,7 +9,7 @@ mod chip;
 mod devices;
 
 fn main() {
-    let mut chip8 = init_chip8("./roms/dodge.ch8".to_string(), &ChipMode::SuperChip);
+    let mut chip8 = init_chip8("./roms/binding.ch8".to_string(), &ChipMode::SuperChip);
 
     let sdl_context = sdl2::init().unwrap();
     let audio_device = AudioDevice::new(&sdl_context);
