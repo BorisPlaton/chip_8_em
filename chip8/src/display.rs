@@ -48,11 +48,12 @@ impl Display {
                 }
 
                 let coord = x_cord + y_cord * width;
-                let is_display_pixel_set = self.buffer[coord];
-                self.buffer[coord] ^= ((sprite[row] >> (7 - col)) & 1) == 1;
+                let is_current_pixel_set = self.buffer[coord];
+                let is_new_pixel_set = ((sprite[row] >> (7 - col)) & 1) == 1;
+                self.buffer[coord] ^= is_new_pixel_set;
 
-                if !pixel_erased && is_display_pixel_set {
-                    pixel_erased = !self.buffer[coord];
+                if !pixel_erased && is_current_pixel_set && is_new_pixel_set {
+                    pixel_erased = true;
                 }
             }
         }
@@ -84,11 +85,12 @@ impl Display {
                 }
 
                 let coord = x_cord + y_cord * Self::EXTENDED_WIDTH;
-                let is_display_pixel_set = self.buffer[coord];
-                self.buffer[coord] ^= ((sprite[row] >> (15 - col)) & 1) == 1;
+                let is_current_pixel_set = self.buffer[coord];
+                let is_new_pixel_set = ((sprite[row] >> (15 - col)) & 1) == 1;
+                self.buffer[coord] ^= is_new_pixel_set;
 
-                if !pixel_erased && is_display_pixel_set {
-                    pixel_erased = !self.buffer[coord];
+                if !pixel_erased && is_current_pixel_set && is_new_pixel_set {
+                    pixel_erased = true;
                 }
             }
         }

@@ -3,13 +3,22 @@ use crate::devices::audio::AudioDevice;
 use crate::devices::display::DisplayDevice;
 use crate::devices::keyboard::KeyboardDevice;
 use chip8::display::Display;
-use chip8::modes::ChipMode;
+use chip8::platform::{ChipMode, Quirks};
+use std::collections::HashSet;
 
 mod chip;
 mod devices;
 
 fn main() {
-    let mut chip8 = init_chip8("./roms/binding.ch8".to_string(), &ChipMode::SuperChip);
+    let mut quirks = HashSet::new();
+    quirks.insert(Quirks::JumpWithX);
+    quirks.insert(Quirks::IRegisterIncrementedWithX);
+    quirks.insert(Quirks::ShiftIgnoreVY);
+    let mut chip8 = init_chip8(
+        "./roms/binding.ch8".to_string(),
+        &ChipMode::SuperChip,
+        &quirks,
+    );
 
     let sdl_context = sdl2::init().unwrap();
     let audio_device = AudioDevice::new(&sdl_context);

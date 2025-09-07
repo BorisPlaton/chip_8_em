@@ -3,7 +3,7 @@ pub mod display;
 mod instruction;
 pub mod keyboard;
 mod memory;
-pub mod modes;
+pub mod platform;
 mod registers;
 pub mod rom;
 mod stack;

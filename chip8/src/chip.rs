@@ -2,12 +2,12 @@ use crate::display::Display;
 use crate::instruction::Instruction;
 use crate::keyboard::Keyboard;
 use crate::memory::{FontSize, Memory};
-use crate::modes::ChipMode;
+use crate::platform::{ChipMode, Quirks};
 use crate::registers::memory::MemoryRegister;
 use crate::registers::timer::TimerRegister;
 use crate::rom::Rom;
 use crate::stack::Stack;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct Chip8<'a> {
     memory: Memory<'a>,
@@ -25,13 +25,15 @@ pub struct Chip8<'a> {
     st_register: TimerRegister,
     /// PC is used to store the currently executing address.
     program_counter: u16,
+
     mode: &'a ChipMode,
+    quirks: &'a HashSet<Quirks>,
 }
 
 impl<'a> Chip8<'a> {
-    const TICKS_PER_FRAME: u16 = 950;
+    const TICKS_PER_FRAME: u16 = 1000;
 
-    pub fn new(rom: Rom, mode: &'a ChipMode) -> Chip8<'a> {
+    pub fn new(rom: Rom, mode: &'a ChipMode, quirks: &'a HashSet<Quirks>) -> Chip8<'a> {
         Chip8 {
             memory: Memory::new(rom.content(), mode),
             stack: Stack::default(),
@@ -62,6 +64,7 @@ impl<'a> Chip8<'a> {
                 registers
             },
             mode,
+            quirks,
         }
     }
 
@@ -70,9 +73,7 @@ impl<'a> Chip8<'a> {
         F: FnMut(&mut Keyboard, &Display, u8),
     {
         loop {
-            for _ in 0..Self::TICKS_PER_FRAME {
-                self.execute();
-            }
+            (0..Self::TICKS_PER_FRAME).for_each(|_| self.execute());
             self.dt_register.tick();
             self.st_register.tick();
             callback(&mut self.keyboard, &self.display, self.st_register.get());
@@ -276,7 +277,7 @@ impl<'a> Chip8<'a> {
         let register_y = self.registers[&instruction.y()];
         self.registers
             .insert(instruction.x(), register_x | register_y);
-        if self.mode == &ChipMode::Chip8 {
+        if self.quirks.contains(&Quirks::BinaryOpResetVF) {
             self.registers.insert(0xF, 0);
         }
     }
@@ -292,7 +293,7 @@ impl<'a> Chip8<'a> {
         let register_y = self.registers[&instruction.y()];
         self.registers
             .insert(instruction.x(), register_x & register_y);
-        if self.mode == &ChipMode::Chip8 {
+        if self.quirks.contains(&Quirks::BinaryOpResetVF) {
             self.registers.insert(0xF, 0);
         }
     }
@@ -309,7 +310,7 @@ impl<'a> Chip8<'a> {
         let register_y = self.registers[&instruction.y()];
         self.registers
             .insert(instruction.x(), register_x ^ register_y);
-        if self.mode == &ChipMode::Chip8 {
+        if self.quirks.contains(&Quirks::BinaryOpResetVF) {
             self.registers.insert(0xF, 0);
         }
     }
@@ -331,14 +332,14 @@ impl<'a> Chip8<'a> {
     /// 8xy5 - SUB Vx, Vy
     /// Set Vx = Vx - Vy, set VF = NOT borrow.
     ///
-    /// If Vx > Vy, then VF is set to 1, otherwise 0. Then Vy is subtracted from Vx, and
+    /// If Vx >= Vy, then VF is set to 1, otherwise 0. Then Vy is subtracted from Vx, and
     /// the results stored in Vx.
     fn sub_vx_vy(&mut self, instruction: Instruction) {
         let register_x = self.registers[&instruction.x()];
         let register_y = self.registers[&instruction.y()];
-        self.registers
-            .insert(instruction.x(), register_x.wrapping_sub(register_y));
-        self.registers.insert(0xF, (register_x >= register_y) as u8);
+        let (result, carry_flag) = register_x.overflowing_sub(register_y);
+        self.registers.insert(instruction.x(), result);
+        self.registers.insert(0xF, !carry_flag as u8);
     }
 
     /// 8xy6 - SHR Vx {, Vy}
@@ -347,10 +348,12 @@ impl<'a> Chip8<'a> {
     /// If the least-significant bit of Vx is 1, then VF is set to 1, otherwise 0. Then
     /// Vx is divided by 2.
     fn shr_vx(&mut self, instruction: Instruction) {
-        let register_value = self.registers[&match self.mode {
-            ChipMode::Chip8 => instruction.y(),
-            ChipMode::SuperChip => instruction.x(),
-        }];
+        let target_register = if self.quirks.contains(&Quirks::ShiftIgnoreVY) {
+            instruction.x()
+        } else {
+            instruction.y()
+        };
+        let register_value = self.registers[&target_register];
         self.registers.insert(instruction.x(), register_value >> 1);
         self.registers.insert(0xF, register_value & 1);
     }
@@ -363,9 +366,9 @@ impl<'a> Chip8<'a> {
     fn subn_vx_vy(&mut self, instruction: Instruction) {
         let register_x = self.registers[&instruction.x()];
         let register_y = self.registers[&instruction.y()];
-        self.registers
-            .insert(instruction.x(), register_y.wrapping_sub(register_x));
-        self.registers.insert(0xF, (register_y >= register_x) as u8);
+        let (result, carry_flag) = register_y.overflowing_sub(register_x);
+        self.registers.insert(instruction.x(), result);
+        self.registers.insert(0xF, !carry_flag as u8);
     }
 
     /// 8xyE - SHL Vx {, Vy}
@@ -373,11 +376,17 @@ impl<'a> Chip8<'a> {
     ///
     /// If the most-significant bit of Vx is 1, then VF is set to 1, otherwise to 0.
     /// Then Vx is multiplied by 2.
+    ///
+    /// *SCHIP*
+    ///
+    /// CHIP-48/SCHIP-1.x don't set vX to vY, so only shift vX
     fn shl_vx(&mut self, instruction: Instruction) {
-        let register_value = self.registers[&match self.mode {
-            ChipMode::Chip8 => instruction.y(),
-            ChipMode::SuperChip => instruction.x(),
-        }];
+        let target_register = if self.quirks.contains(&Quirks::ShiftIgnoreVY) {
+            instruction.x()
+        } else {
+            instruction.y()
+        };
+        let register_value = self.registers[&target_register];
         self.registers.insert(instruction.x(), register_value << 1);
         self.registers.insert(
             0xF,
@@ -422,11 +431,13 @@ impl<'a> Chip8<'a> {
     ///
     /// The program counter is set to xnn plus the value of Vx.
     fn jp_vo_addr(&mut self, instruction: Instruction) {
-        let register_val = self.registers[&match &self.mode {
-            ChipMode::Chip8 => 0,
-            ChipMode::SuperChip => instruction.x(),
-        }];
-        self.program_counter = instruction.nnn() + register_val as u16;
+        let target_register = if self.quirks.contains(&Quirks::JumpWithX) {
+            instruction.x()
+        } else {
+            0
+        };
+        let register_value = self.registers[&target_register];
+        self.program_counter = instruction.nnn() + register_value as u16;
     }
 
     /// Cxkk - RND Vx, byte
@@ -589,7 +600,7 @@ impl<'a> Chip8<'a> {
     }
 
     /// Fx55 - LD [I], Vx
-    /// Store registers V0 through Vx in memory starting at location I.
+    /// Store registers V0 through Vx in memory starting at location `I`.
     ///
     /// The interpreter copies the values of registers V0 through Vx into memory,
     /// starting at the address in `I`.
@@ -600,16 +611,16 @@ impl<'a> Chip8<'a> {
                 *self.registers.get(&register).unwrap(),
             );
         });
-        if self.mode == &ChipMode::Chip8 {
+        if self.quirks.contains(&Quirks::IRegisterIncrementedWithX) {
             self.i_register
                 .set(self.i_register.get() + instruction.x() as u16 + 1);
         }
     }
 
     /// Fx65 - LD Vx, [I]
-    /// Read registers V0 through Vx from memory starting at location I.
+    /// Read registers V0 through Vx from memory starting at location `I`.
     ///
-    /// The interpreter reads values from memory starting at location I into
+    /// The interpreter reads values from memory starting at location `I` into
     /// registers V0 through Vx.
     fn ld_vx_i(&mut self, instruction: Instruction) {
         (0..=instruction.x()).for_each(|register| {
@@ -618,13 +629,13 @@ impl<'a> Chip8<'a> {
                 self.memory.read(self.i_register.add(register as u16)),
             );
         });
-        if self.mode == &ChipMode::Chip8 {
+        if self.quirks.contains(&Quirks::IRegisterIncrementedWithX) {
             self.i_register
                 .set(self.i_register.get() + instruction.x() as u16 + 1);
         }
     }
 
-    /// FX75 - Store V0..VX in RPL user flags (X <= 7)
+    /// Fx75 - Store V0..VX in RPL user flags (x <= 7)
     fn load_rpl_flags(&mut self, instruction: Instruction) {
         self.memory.write_rpl_flags(
             &self
@@ -636,7 +647,7 @@ impl<'a> Chip8<'a> {
         );
     }
 
-    /// FX85 - Read V0..VX from RPL user flags (X <= 7)
+    /// Fx85 - Read V0..VX from RPL user flags (x <= 7)
     fn read_rpl_flags(&mut self, instruction: Instruction) {
         self.memory
             .read_rpl_flags()

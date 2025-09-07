@@ -1,4 +1,4 @@
-use crate::modes::ChipMode;
+use crate::platform::ChipMode;
 
 // http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#2.1
 //
