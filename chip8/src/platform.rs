@@ -36,8 +36,8 @@ pub enum Quirks {
     /// In the CHIP-8 interpreter, this instruction did the following:
     /// It put the value of `VY` into `VX`, and then shifted the value
     /// in `VX` 1 bit to the right (`8XY6`) or left (`8XYE`). `VY` was
-    /// not affected, but the flag register `VF` would be set to the bit
-    /// that was shifted out.
+    /// not affected, but the flag register `VF` would be set to the
+    /// bit that was shifted out.
     ///
     /// However, starting with CHIP-48 and SUPER-CHIP in the early 1990s,
     /// these instructions were changed so that they shifted `VX` in place,
@@ -46,7 +46,8 @@ pub enum Quirks {
 
     /// For `8XY1`, `8XY2` and `8XY3` instructions.
     ///
-    /// The AND, OR and XOR opcodes reset the flags register to zero in the end.
+    /// The AND, OR and XOR opcodes reset the flags register to zero in
+    /// the end.
     BinaryOpResetVF,
 }
 

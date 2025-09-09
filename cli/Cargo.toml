@@ -1,8 +1,9 @@
 [package]
-name = "emulator"
+name = "chip"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 chip8 = { path = "../chip8" }
+clap = { version = "4.5.47", features = ["derive"] }
 sdl2 = "0.38.0"

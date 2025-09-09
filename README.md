@@ -14,6 +14,9 @@
 * [SUPER-CHIP v1.0](https://www.nic.funet.fi/pub/misc/hp48sx/chip/s_chip10.txt)
 * [SUPER-CHIP v1.1](http://devernay.free.fr/hacks/chip8/schip.txt)
 
+### XO-CHIP
+* [XO-Chip Specification](https://johnearnest.github.io/Octo/docs/XO-ChipSpecification.html)
+
 ### Miscellaneous
 
 * [Game ROMs](https://johnearnest.github.io/chip8Archive)

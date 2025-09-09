@@ -8,6 +8,7 @@ use crate::registers::timer::TimerRegister;
 use crate::rom::Rom;
 use crate::stack::Stack;
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 pub struct Chip8<'a> {
     memory: Memory<'a>,
@@ -26,14 +27,20 @@ pub struct Chip8<'a> {
     /// PC is used to store the currently executing address.
     program_counter: u16,
 
+    ticks_per_frame: u16,
     mode: &'a ChipMode,
     quirks: &'a HashSet<Quirks>,
+    sleep_time: Option<u8>,
 }
 
 impl<'a> Chip8<'a> {
-    const TICKS_PER_FRAME: u16 = 1000;
-
-    pub fn new(rom: Rom, mode: &'a ChipMode, quirks: &'a HashSet<Quirks>) -> Chip8<'a> {
+    pub fn new(
+        rom: Rom,
+        mode: &'a ChipMode,
+        quirks: &'a HashSet<Quirks>,
+        ticks_per_frame: u16,
+        sleep_time: Option<u8>,
+    ) -> Chip8<'a> {
         Chip8 {
             memory: Memory::new(rom.content(), mode),
             stack: Stack::default(),
@@ -65,6 +72,8 @@ impl<'a> Chip8<'a> {
             },
             mode,
             quirks,
+            ticks_per_frame,
+            sleep_time,
         }
     }
 
@@ -73,7 +82,12 @@ impl<'a> Chip8<'a> {
         F: FnMut(&mut Keyboard, &Display, u8),
     {
         loop {
-            (0..Self::TICKS_PER_FRAME).for_each(|_| self.execute());
+            (0..self.ticks_per_frame).for_each(|_| {
+                self.execute();
+                if let Some(sleep_time) = self.sleep_time {
+                    std::thread::sleep(Duration::from_micros(sleep_time as u64));
+                }
+            });
             self.dt_register.tick();
             self.st_register.tick();
             callback(&mut self.keyboard, &self.display, self.st_register.get());
