@@ -20,8 +20,8 @@ fn main() {
     let mut display_device = DisplayDevice::new(
         &sdl_context,
         "CHIP-8",
-        Display::EXTENDED_WIDTH as u32,
-        Display::EXTENDED_HEIGHT as u32,
+        Display::HIRES_WIDTH as u32,
+        Display::HIRES_HEIGHT as u32,
         config.scale as u32,
     );
 

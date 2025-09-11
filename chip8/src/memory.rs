@@ -1,3 +1,4 @@
+use crate::display::ScreenResolution;
 use crate::platform::ChipMode;
 
 // http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#2.1
@@ -29,11 +30,6 @@ pub struct Memory<'a> {
     map: [u8; 4096],
     mode: &'a ChipMode,
     rpl_flags: [u8; 8],
-}
-
-pub enum FontSize {
-    Standard,
-    Extended,
 }
 
 impl<'a> Memory<'a> {
@@ -80,11 +76,11 @@ impl<'a> Memory<'a> {
         self.map[addr as usize]
     }
 
-    pub fn get_font_address(&self, digit: u8, size: FontSize) -> u16 {
-        match (self.mode, size, digit) {
-            (_, FontSize::Standard, _) if digit <= 0xF => (digit * 5) as u16,
-            (ChipMode::SuperChip, FontSize::Extended, _) if digit <= 9 => {
-                (0xF * 5 + digit * 10) as u16
+    pub fn get_font_address(&self, digit: u8, resolution: ScreenResolution) -> u16 {
+        match (self.mode, resolution, digit) {
+            (_, ScreenResolution::Lores, _) if digit <= 0xF => (digit * 5) as u16,
+            (ChipMode::SuperChip, ScreenResolution::Hires, _) if digit <= 9 => {
+                (16 * 5 + digit * 10) as u16
             }
             _ => panic!("Invalid font sprite {digit} for mode {}", self.mode),
         }

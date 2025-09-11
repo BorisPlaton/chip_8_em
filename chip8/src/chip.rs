@@ -1,7 +1,7 @@
-use crate::display::Display;
+use crate::display::{Display, ScreenResolution};
 use crate::instruction::Instruction;
 use crate::keyboard::Keyboard;
-use crate::memory::{FontSize, Memory};
+use crate::memory::Memory;
 use crate::platform::{ChipMode, Quirks};
 use crate::registers::memory::MemoryRegister;
 use crate::registers::timer::TimerRegister;
@@ -103,8 +103,8 @@ impl<'a> Chip8<'a> {
             (ChipMode::SuperChip, (0, 0, 0xF, 0xB)) => self.scroll_display_4_px_right(),
             (ChipMode::SuperChip, (0, 0, 0xF, 0xC)) => self.scroll_display_4_px_left(),
             (ChipMode::SuperChip, (0, 0, 0xF, 0xD)) => self.exit_interpreter(),
-            (ChipMode::SuperChip, (0, 0, 0xF, 0xE)) => self.disable_display_extended_mode(),
-            (ChipMode::SuperChip, (0, 0, 0xF, 0xF)) => self.enable_display_extended_mode(),
+            (ChipMode::SuperChip, (0, 0, 0xF, 0xE)) => self.disable_hires(),
+            (ChipMode::SuperChip, (0, 0, 0xF, 0xF)) => self.enable_hires(),
             (ChipMode::Chip8, (0, _, _, _)) => self.jp_addr(instruction),
             (_, (1, ..)) => self.jp_addr(instruction),
             (_, (2, ..)) => self.call_addr(instruction),
@@ -188,14 +188,14 @@ impl<'a> Chip8<'a> {
         std::process::exit(0);
     }
 
-    /// 00FE - Disable extended screen mode for full-screen graphics.
-    fn disable_display_extended_mode(&mut self) {
-        self.display.disable_extended_mode();
+    /// 00FE - Disable high resolution screen mode for full-screen graphics.
+    fn disable_hires(&mut self) {
+        self.display.disable_hires();
     }
 
-    /// 00FF - Enable extended screen mode for full-screen graphics.
-    fn enable_display_extended_mode(&mut self) {
-        self.display.enable_extended_mode();
+    /// 00FF - Enable high resolution screen mode for full-screen graphics.
+    fn enable_hires(&mut self) {
+        self.display.enable_hires();
     }
 
     /// 1nnn - JP addr
@@ -469,7 +469,7 @@ impl<'a> Chip8<'a> {
     /// Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision.
     ///
     /// *SCHIP*
-    /// If N=0 and extended mode, show 16x16 sprite.
+    /// If N=0 and hires mode, show 16x16 sprite.
     ///
     /// The interpreter reads n bytes from memory, starting at the address stored
     /// in I. These bytes are then displayed as sprites on screen at coordinates (Vx, Vy).
@@ -509,7 +509,7 @@ impl<'a> Chip8<'a> {
             _ => panic!(
                 "Unable to draw sprite n: {} hires: {}.",
                 instruction.n(),
-                self.display.is_extended_mode()
+                self.display.is_hires()
             ),
         };
         self.registers.insert(0xF, pixel_erased as u8);
@@ -596,15 +596,19 @@ impl<'a> Chip8<'a> {
     /// Chip-8 hexadecimal font.
     fn ld_f_vx(&mut self, instruction: Instruction) {
         let register_x = self.registers[&instruction.x()];
-        self.i_register
-            .set(self.memory.get_font_address(register_x, FontSize::Standard));
+        self.i_register.set(
+            self.memory
+                .get_font_address(register_x, ScreenResolution::Lores),
+        );
     }
 
     /// Fx30 - Point I to 10-byte font sprite for digit VX (0..F)
     fn load_10_byte_font_to_i(&mut self, instruction: Instruction) {
         let register_x = self.registers[&instruction.x()];
-        self.i_register
-            .set(self.memory.get_font_address(register_x, FontSize::Extended));
+        self.i_register.set(
+            self.memory
+                .get_font_address(register_x, ScreenResolution::Hires),
+        );
     }
 
     /// Fx33 - LD B, Vx

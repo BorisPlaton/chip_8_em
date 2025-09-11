@@ -2,19 +2,19 @@ type PixelErased = bool;
 
 pub struct Display {
     buffer: [bool; 8192],
-    extended_mode: bool,
+    is_hires: bool,
 }
 
-pub enum SpriteSize {
-    Standard,
-    Extended,
+pub enum ScreenResolution {
+    Lores,
+    Hires,
 }
 
 impl Default for Display {
     fn default() -> Display {
         Display {
             buffer: [false; 8192],
-            extended_mode: false,
+            is_hires: false,
         }
     }
 }
@@ -23,8 +23,8 @@ impl Display {
     pub const WIDTH: usize = 64;
     pub const HEIGHT: usize = 32;
 
-    pub const EXTENDED_WIDTH: usize = 128;
-    pub const EXTENDED_HEIGHT: usize = 64;
+    pub const HIRES_WIDTH: usize = 128;
+    pub const HIRES_HEIGHT: usize = 64;
 
     pub fn draw_sprite(&mut self, mut x: usize, mut y: usize, sprite: &[u8]) -> PixelErased {
         let mut pixel_erased = false;
@@ -109,18 +109,18 @@ impl Display {
         self.buffer.fill(false);
     }
 
-    pub fn enable_extended_mode(&mut self) {
+    pub fn enable_hires(&mut self) {
         self.clear();
-        self.extended_mode = true;
+        self.is_hires = true;
     }
 
-    pub fn disable_extended_mode(&mut self) {
+    pub fn disable_hires(&mut self) {
         self.clear();
-        self.extended_mode = false;
+        self.is_hires = false;
     }
 
-    pub fn is_extended_mode(&self) -> bool {
-        self.extended_mode
+    pub fn is_hires(&self) -> bool {
+        self.is_hires
     }
 
     pub fn scroll_n_lines_down(&mut self, lines: u8) {
@@ -149,16 +149,16 @@ impl Display {
     }
 
     pub fn width(&self) -> usize {
-        if self.extended_mode {
-            Self::EXTENDED_WIDTH
+        if self.is_hires {
+            Self::HIRES_WIDTH
         } else {
             Self::WIDTH
         }
     }
 
     pub fn height(&self) -> usize {
-        if self.extended_mode {
-            Self::EXTENDED_HEIGHT
+        if self.is_hires {
+            Self::HIRES_HEIGHT
         } else {
             Self::HEIGHT
         }
