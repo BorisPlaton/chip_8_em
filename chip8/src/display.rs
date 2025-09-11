@@ -28,26 +28,26 @@ impl Display {
 
     pub fn draw_sprite(&mut self, mut x: usize, mut y: usize, sprite: &[u8]) -> PixelErased {
         let mut pixel_erased = false;
-        let width = self.width();
-        let height = self.height();
-        x %= width;
-        y %= height;
+        let screen_width = self.width();
+        let screen_height = self.height();
+        x %= screen_width;
+        y %= screen_height;
 
         for row in 0..sprite.len() {
             let y_cord = y + row;
 
-            if y_cord >= height {
+            if y_cord >= screen_height {
                 break;
             }
 
             for col in 0..8 {
-                let x_cord = x + col;
+                let mut x_cord = x + col;
 
-                if x_cord >= width {
-                    break;
+                if x_cord >= screen_width {
+                    x_cord = x_cord - screen_width;
                 }
 
-                let coord = x_cord + y_cord * width;
+                let coord = x_cord + y_cord * screen_width;
                 let is_current_pixel_set = self.buffer[coord];
                 let is_new_pixel_set = ((sprite[row] >> (7 - col)) & 1) == 1;
                 self.buffer[coord] ^= is_new_pixel_set;
@@ -57,6 +57,7 @@ impl Display {
                 }
             }
         }
+
         pixel_erased
     }
 
@@ -67,24 +68,26 @@ impl Display {
         sprite: [u16; 16],
     ) -> PixelErased {
         let mut pixel_erased = false;
-        x %= Self::EXTENDED_WIDTH;
-        y %= Self::EXTENDED_HEIGHT;
+        let screen_width = self.width();
+        let screen_height = self.height();
+        x %= screen_width;
+        y %= screen_height;
 
         for row in 0..16 {
             let y_cord = y + row;
 
-            if y_cord >= Self::EXTENDED_HEIGHT {
+            if y_cord >= screen_height {
                 break;
             }
 
             for col in 0..16 {
-                let x_cord = x + col;
+                let mut x_cord = x + col;
 
-                if x_cord >= Self::EXTENDED_WIDTH {
-                    break;
+                if x_cord >= screen_width {
+                    x_cord = x_cord - screen_width;
                 }
 
-                let coord = x_cord + y_cord * Self::EXTENDED_WIDTH;
+                let coord = x_cord + y_cord * screen_width;
                 let is_current_pixel_set = self.buffer[coord];
                 let is_new_pixel_set = ((sprite[row] >> (15 - col)) & 1) == 1;
                 self.buffer[coord] ^= is_new_pixel_set;
@@ -94,6 +97,7 @@ impl Display {
                 }
             }
         }
+
         pixel_erased
     }
 
@@ -102,7 +106,7 @@ impl Display {
     }
 
     pub fn clear(&mut self) {
-        self.buffer = [false; 8192];
+        self.buffer.fill(false);
     }
 
     pub fn enable_extended_mode(&mut self) {

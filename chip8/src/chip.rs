@@ -478,31 +478,39 @@ impl<'a> Chip8<'a> {
     /// so part of it is outside the coordinates of the display, it wraps around to
     /// the opposite side of the screen.
     fn drw_vx_vy_n(&mut self, instruction: Instruction) {
-        let pixel_erased = if instruction.n() == 0 && self.display.is_extended_mode() {
-            let sprite_bytes = (0..32u16)
-                .into_iter()
-                .map(|i| self.memory.read(self.i_register.add(i)))
-                .collect::<Vec<u8>>()
-                .chunks_exact(2)
-                .map(|sprite_bytes| u16::from_be_bytes(sprite_bytes.try_into().unwrap()))
-                .collect::<Vec<u16>>()
-                .try_into()
-                .unwrap();
-            self.display.draw_16_16_sprite(
-                self.registers[&instruction.x()] as usize,
-                self.registers[&instruction.y()] as usize,
-                sprite_bytes,
-            )
-        } else {
-            let sprite_bytes: Vec<_> = (0..instruction.n() as u16)
-                .into_iter()
-                .map(|i| self.memory.read(self.i_register.add(i)))
-                .collect();
-            self.display.draw_sprite(
-                self.registers[&instruction.x()] as usize,
-                self.registers[&instruction.y()] as usize,
-                &sprite_bytes,
-            )
+        let pixel_erased = match (self.mode, instruction.n()) {
+            (ChipMode::SuperChip | ChipMode::Chip8, n) if n != 0 => {
+                let sprite_bytes: Vec<_> = (0..n as u16)
+                    .into_iter()
+                    .map(|i| self.memory.read(self.i_register.add(i)))
+                    .collect();
+                self.display.draw_sprite(
+                    self.registers[&instruction.x()] as usize,
+                    self.registers[&instruction.y()] as usize,
+                    &sprite_bytes,
+                )
+            }
+            (ChipMode::SuperChip, 0) => {
+                let sprite_bytes = (0..32u16)
+                    .into_iter()
+                    .map(|i| self.memory.read(self.i_register.add(i)))
+                    .collect::<Vec<u8>>()
+                    .chunks_exact(2)
+                    .map(|sprite_bytes| u16::from_be_bytes(sprite_bytes.try_into().unwrap()))
+                    .collect::<Vec<u16>>()
+                    .try_into()
+                    .unwrap();
+                self.display.draw_16_16_sprite(
+                    self.registers[&instruction.x()] as usize,
+                    self.registers[&instruction.y()] as usize,
+                    sprite_bytes,
+                )
+            }
+            _ => panic!(
+                "Unable to draw sprite n: {} hires: {}.",
+                instruction.n(),
+                self.display.is_extended_mode()
+            ),
         };
         self.registers.insert(0xF, pixel_erased as u8);
     }
