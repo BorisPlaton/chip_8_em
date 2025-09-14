@@ -13,7 +13,7 @@ impl Keyboard {
     }
 
     pub fn is_key_pressed(&self, key: u8) -> bool {
-        self.keys[key as usize]
+        *self.keys.get(key as usize).or(Some(&false)).unwrap()
     }
 
     pub fn pressed_key(&self) -> Option<u8> {
