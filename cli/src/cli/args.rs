@@ -54,6 +54,13 @@ pub struct Args {
     #[arg(short, long)]
     pub binary_op_reset_vf_quirk: bool,
 
+    /// Wraps pixels instead of clipping them.
+    ///
+    /// When this quirk is enabled, sprites get rendered at the coordinates on
+    /// the other side of the screen.
+    #[arg(short, long)]
+    pub wrap_instead_of_clipping_quirk: bool,
+
     /// Scale of the emulator window.
     #[arg(long, default_value_t = 7, value_parser=clap::value_parser!(u8).range(..=13))]
     pub scale: u8,
@@ -75,17 +82,19 @@ pub struct Args {
 pub enum Platform {
     Chip8,
     SuperChip,
+    XOChip,
 }
 
 impl ValueEnum for Platform {
     fn value_variants<'a>() -> &'a [Self] {
-        &[Self::Chip8, Self::SuperChip]
+        &[Self::Chip8, Self::SuperChip, Self::XOChip]
     }
 
     fn from_str(input: &str, _ignore_case: bool) -> Result<Self, String> {
         match input.to_lowercase().as_str() {
             "chip8" => Ok(Self::Chip8),
             "superchip" => Ok(Self::SuperChip),
+            "xochip" => Ok(Self::XOChip),
             _ => Err(format!("Invalid platform: {}", input)),
         }
     }
@@ -98,6 +107,10 @@ impl ValueEnum for Platform {
             Self::SuperChip => Some(
                 PossibleValue::new("schip")
                     .help("Program will run only CHIP-8 + SuperChip instructions."),
+            ),
+            Self::XOChip => Some(
+                PossibleValue::new("xochip")
+                    .help("Program will run only CHIP-8 + SuperChip + XO-Chip instructions."),
             ),
         }
     }

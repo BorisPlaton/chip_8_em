@@ -29,6 +29,9 @@ impl EmulatorConfig {
         if args.binary_op_reset_vf_quirk {
             quirks.insert(Quirks::BinaryOpResetVF);
         }
+        if args.wrap_instead_of_clipping_quirk {
+            quirks.insert(Quirks::WrapsInsteadClipping);
+        }
 
         EmulatorConfig {
             file: args.file,
@@ -44,6 +47,7 @@ impl EmulatorConfig {
         match platform {
             Platform::Chip8 => ChipMode::Chip8,
             Platform::SuperChip => ChipMode::SuperChip,
+            Platform::XOChip => ChipMode::XOChip,
         }
     }
 }

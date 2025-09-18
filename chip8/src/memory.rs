@@ -27,20 +27,26 @@ use crate::platform::ChipMode;
 // |  interpreter  |
 // +---------------+= 0x000 (0) Start of Chip-8 RAM
 pub struct Memory<'a> {
-    map: [u8; 4096],
+    map: [u8; Memory::EXTENDED_MEMORY_SIZE as usize],
     mode: &'a ChipMode,
-    rpl_flags: [u8; 8],
+    rpl_flags: [u8; 16],
+    memory_size: u16,
 }
 
 impl<'a> Memory<'a> {
     const RESERVED_ADDR_START: u16 = 0;
     pub const PROGRAM_ADDR_START: u16 = 0x200;
-    pub const MEMORY_SIZE: u16 = 0xFFF;
+    const MEMORY_SIZE: u16 = 0x0FFF;
+    const EXTENDED_MEMORY_SIZE: u16 = 0xFFFF;
 
     pub fn new(program: &[u8], mode: &'a ChipMode) -> Memory<'a> {
         let mut memory = Memory {
-            map: [0; 4096],
-            rpl_flags: [0; 8],
+            map: [0; Memory::EXTENDED_MEMORY_SIZE as usize],
+            rpl_flags: [0; 16],
+            memory_size: match mode {
+                ChipMode::XOChip => Self::EXTENDED_MEMORY_SIZE,
+                _ => Self::MEMORY_SIZE,
+            },
             mode,
         };
 
@@ -61,7 +67,11 @@ impl<'a> Memory<'a> {
                     addr
                 );
             }
-            Memory::PROGRAM_ADDR_START..=Memory::MEMORY_SIZE => self.map[addr as usize] = val,
+            Memory::PROGRAM_ADDR_START..=Memory::EXTENDED_MEMORY_SIZE
+                if addr <= self.memory_size =>
+            {
+                self.map[addr as usize] = val
+            }
             _ => panic!(
                 "Attempted to write to the out-of-bound address: {:04x}",
                 addr
@@ -70,16 +80,33 @@ impl<'a> Memory<'a> {
     }
 
     pub fn read(&mut self, addr: u16) -> u8 {
-        if addr > Self::MEMORY_SIZE {
+        if addr > self.memory_size {
             panic!("Attempted to read out-of-bound address: {:04x}", addr);
         }
         self.map[addr as usize]
     }
 
+    pub fn read_n_bytes(&mut self, addr: u16, n: u16) -> Vec<u8> {
+        (0..n)
+            .into_iter()
+            .map(|i| self.read(addr.wrapping_add(i)))
+            .collect::<Vec<u8>>()
+    }
+
+    pub fn read_n_2bytes(&mut self, addr: u16, n: u16) -> Vec<u16> {
+        (0..2 * n)
+            .into_iter()
+            .map(|i| self.read(addr.wrapping_add(i)))
+            .collect::<Vec<u8>>()
+            .chunks_exact(2)
+            .map(|sprite_bytes| u16::from_be_bytes(sprite_bytes.try_into().unwrap()))
+            .collect::<Vec<u16>>()
+    }
+
     pub fn get_font_address(&self, digit: u8, resolution: ScreenResolution) -> u16 {
         match (self.mode, resolution, digit) {
             (_, ScreenResolution::Lores, _) if digit <= 0xF => (digit * 5) as u16,
-            (ChipMode::SuperChip, ScreenResolution::Hires, _) if digit <= 9 => {
+            (ChipMode::SuperChip | ChipMode::XOChip, ScreenResolution::Hires, _) => {
                 (16 * 5 + digit * 10) as u16
             }
             _ => panic!("Invalid font sprite {digit} for mode {}", self.mode),
@@ -94,6 +121,10 @@ impl<'a> Memory<'a> {
 
     pub fn read_rpl_flags(&mut self) -> &[u8] {
         &self.rpl_flags
+    }
+
+    pub fn get_memory_size(&self) -> u16 {
+        self.memory_size
     }
 
     fn load_font_sprites(&mut self) {
@@ -118,7 +149,7 @@ impl<'a> Memory<'a> {
             0xF0, 0x80, 0xF0, 0x80, 0x80, // F
         ]);
 
-        if self.mode == &ChipMode::SuperChip {
+        if self.mode != &ChipMode::Chip8 {
             font_sprites.extend_from_slice(&[
                 0xFF, 0xFF, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xFF, 0xFF, // 0
                 0x18, 0x78, 0x78, 0x18, 0x18, 0x18, 0x18, 0x18, 0xFF, 0xFF, // 1

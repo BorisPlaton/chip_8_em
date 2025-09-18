@@ -1,4 +1,4 @@
-use crate::display::{Display, ScreenResolution};
+use crate::display::{Display, Plane, ScreenResolution};
 use crate::instruction::Instruction;
 use crate::keyboard::Keyboard;
 use crate::memory::Memory;
@@ -13,7 +13,7 @@ use std::time::Duration;
 pub struct Chip8<'a> {
     memory: Memory<'a>,
     stack: Stack,
-    display: Display,
+    display: Display<'a>,
     keyboard: Keyboard,
     /// General purpose registers.
     registers: HashMap<u8, u8>,
@@ -26,6 +26,9 @@ pub struct Chip8<'a> {
     st_register: TimerRegister,
     /// PC is used to store the currently executing address.
     program_counter: u16,
+
+    audio_buffer: [u16; 16],
+    pitch: u16,
 
     ticks_per_frame: u16,
     mode: &'a ChipMode,
@@ -41,12 +44,14 @@ impl<'a> Chip8<'a> {
         ticks_per_frame: u16,
         sleep_time: Option<u8>,
     ) -> Chip8<'a> {
+        let memory = Memory::new(rom.content(), mode);
+        let memory_size = memory.get_memory_size();
         Chip8 {
-            memory: Memory::new(rom.content(), mode),
-            stack: Stack::default(),
-            display: Display::default(),
+            memory,
+            stack: Stack::new(memory_size),
+            display: Display::new(quirks),
             keyboard: Keyboard::default(),
-            i_register: MemoryRegister::default(),
+            i_register: MemoryRegister::new(memory_size),
             dt_register: TimerRegister::default(),
             st_register: TimerRegister::default(),
             program_counter: Memory::PROGRAM_ADDR_START,
@@ -70,6 +75,8 @@ impl<'a> Chip8<'a> {
                 registers.insert(0xF, 0);
                 registers
             },
+            audio_buffer: [0xFFFF; 16],
+            pitch: 8000,
             mode,
             quirks,
             ticks_per_frame,
@@ -97,19 +104,28 @@ impl<'a> Chip8<'a> {
     fn execute(&mut self) {
         let instruction = self.next_instruction();
         match (&self.mode, instruction.nibbles()) {
-            (ChipMode::SuperChip, (0, 0, 0xC, n)) if n > 0 => self.scroll_n_lines_down(instruction),
+            (ChipMode::SuperChip | ChipMode::XOChip, (0, 0, 0xC, n)) if n > 0 => {
+                self.scroll_n_lines_down(instruction)
+            }
+            (ChipMode::XOChip, (0, 0, 0xD, _)) => self.scroll_n_lines_up(instruction),
             (_, (0, 0, 0xE, 0)) => self.cls(),
             (_, (0, 0, 0xE, 0xE)) => self.ret(),
-            (ChipMode::SuperChip, (0, 0, 0xF, 0xB)) => self.scroll_display_4_px_right(),
-            (ChipMode::SuperChip, (0, 0, 0xF, 0xC)) => self.scroll_display_4_px_left(),
-            (ChipMode::SuperChip, (0, 0, 0xF, 0xD)) => self.exit_interpreter(),
-            (ChipMode::SuperChip, (0, 0, 0xF, 0xE)) => self.disable_hires(),
-            (ChipMode::SuperChip, (0, 0, 0xF, 0xF)) => self.enable_hires(),
+            (ChipMode::SuperChip | ChipMode::XOChip, (0, 0, 0xF, 0xB)) => {
+                self.scroll_display_4_px_right()
+            }
+            (ChipMode::SuperChip | ChipMode::XOChip, (0, 0, 0xF, 0xC)) => {
+                self.scroll_display_4_px_left()
+            }
+            (ChipMode::SuperChip | ChipMode::XOChip, (0, 0, 0xF, 0xD)) => self.exit_interpreter(),
+            (ChipMode::SuperChip | ChipMode::XOChip, (0, 0, 0xF, 0xE)) => self.disable_hires(),
+            (ChipMode::SuperChip | ChipMode::XOChip, (0, 0, 0xF, 0xF)) => self.enable_hires(),
             (ChipMode::Chip8, (0, _, _, _)) => self.jp_addr(instruction),
             (_, (1, ..)) => self.jp_addr(instruction),
             (_, (2, ..)) => self.call_addr(instruction),
             (_, (3, ..)) => self.se_vx_byte(instruction),
             (_, (4, ..)) => self.sne_vx_byte(instruction),
+            (ChipMode::XOChip, (5, .., 2)) => self.save_registers_range(instruction),
+            (ChipMode::XOChip, (5, .., 3)) => self.load_registers_range(instruction),
             (_, (5, ..)) => self.se_vx_vy(instruction),
             (_, (6, ..)) => self.ld_vx_byte(instruction),
             (_, (7, ..)) => self.add_vx_byte(instruction),
@@ -122,25 +138,35 @@ impl<'a> Chip8<'a> {
             (_, (8, .., 6)) => self.shr_vx(instruction),
             (_, (8, .., 7)) => self.subn_vx_vy(instruction),
             (_, (8, .., 0xE)) => self.shl_vx(instruction),
-            (_, (9, ..)) => self.sne_vx_vy(instruction),
+            (_, (9, .., 0)) => self.sne_vx_vy(instruction),
             (_, (0xA, ..)) => self.ld_i_addr(instruction),
             (_, (0xB, ..)) => self.jp_vo_addr(instruction),
             (_, (0xC, ..)) => self.rnd_vx_byte(instruction),
             (_, (0xD, ..)) => self.drw_vx_vy_n(instruction),
             (_, (0xE, _, 0x9, 0xE)) => self.skp_vx(instruction),
             (_, (0xE, _, 0xA, 1)) => self.sknp_vx(instruction),
+            (ChipMode::XOChip, (0xF, 0, 0, 0)) => self.load_i(),
+            (ChipMode::XOChip, (0xF, _, 0, 1)) => self.set_plane(instruction),
+            (ChipMode::XOChip, (0xF, 0, 0, 2)) => {}
             (_, (0xF, _, 0, 7)) => self.ld_vx_dt(instruction),
             (_, (0xF, _, 0, 0xA)) => self.ld_vx_k(instruction),
             (_, (0xF, _, 1, 5)) => self.ld_dt_vx(instruction),
             (_, (0xF, _, 1, 8)) => self.ld_st_vx(instruction),
             (_, (0xF, _, 1, 0xE)) => self.add_i_vx(instruction),
             (_, (0xF, _, 2, 9)) => self.ld_f_vx(instruction),
-            (ChipMode::SuperChip, (0xF, _, 3, 0)) => self.load_10_byte_font_to_i(instruction),
+            (ChipMode::SuperChip | ChipMode::XOChip, (0xF, _, 3, 0)) => {
+                self.load_10_byte_font_to_i(instruction)
+            }
             (_, (0xF, _, 3, 3)) => self.ld_b_vx(instruction),
+            (ChipMode::XOChip, (0xF, _, 3, 0xA)) => {}
             (_, (0xF, _, 5, 5)) => self.ld_i_vx(instruction),
             (_, (0xF, _, 6, 5)) => self.ld_vx_i(instruction),
-            (ChipMode::SuperChip, (0xF, x, 7, 5)) if x <= 7 => self.load_rpl_flags(instruction),
-            (ChipMode::SuperChip, (0xF, x, 8, 5)) if x <= 7 => self.read_rpl_flags(instruction),
+            (ChipMode::SuperChip | ChipMode::XOChip, (0xF, _, 7, 5)) => {
+                self.load_rpl_flags(instruction)
+            }
+            (ChipMode::SuperChip | ChipMode::XOChip, (0xF, _, 8, 5)) => {
+                self.read_rpl_flags(instruction)
+            }
             (_, bytes) => {
                 let lo_byte = bytes.3 + (bytes.2 << 4);
                 let hi_byte = bytes.1 + (bytes.0 << 4);
@@ -156,6 +182,11 @@ impl<'a> Chip8<'a> {
     /// 00CN - Scroll display N lines down
     fn scroll_n_lines_down(&mut self, instruction: Instruction) {
         self.display.scroll_n_lines_down(instruction.n());
+    }
+
+    /// 0x00DN - scroll the contents of the display up by N pixels.
+    fn scroll_n_lines_up(&mut self, instruction: Instruction) {
+        self.display.scroll_n_lines_up(instruction.n());
     }
 
     /// 00E0 - CLS
@@ -224,7 +255,7 @@ impl<'a> Chip8<'a> {
     fn se_vx_byte(&mut self, instruction: Instruction) {
         let register_x = self.registers[&instruction.x()];
         if register_x == instruction.kk() {
-            self.program_counter += 2;
+            self.skip_next_instruction();
         }
     }
 
@@ -236,8 +267,34 @@ impl<'a> Chip8<'a> {
     fn sne_vx_byte(&mut self, instruction: Instruction) {
         let register_x = self.registers[&instruction.x()];
         if register_x != instruction.kk() {
-            self.program_counter += 2;
+            self.skip_next_instruction();
         }
+    }
+
+    /// 0x5XY2 - Save an inclusive range of registers vx - vy to memory starting at `I`.
+    fn save_registers_range(&mut self, instruction: Instruction) {
+        let range = if instruction.x() > instruction.y() {
+            Box::new((instruction.y()..=instruction.x()).rev()) as Box<dyn Iterator<Item = _>>
+        } else {
+            Box::new((instruction.x()..=instruction.y()).into_iter()) as Box<dyn Iterator<Item = _>>
+        };
+        range.enumerate().for_each(|(i, register)| {
+            self.memory
+                .write(self.i_register.add(i as u16), self.registers[&register]);
+        });
+    }
+
+    /// 0x5XY3 - Load an inclusive range of registers vx - vy from memory starting at `I`.
+    fn load_registers_range(&mut self, instruction: Instruction) {
+        let range = if instruction.x() > instruction.y() {
+            Box::new((instruction.y()..=instruction.x()).rev()) as Box<dyn Iterator<Item = _>>
+        } else {
+            Box::new((instruction.x()..=instruction.y()).into_iter()) as Box<dyn Iterator<Item = _>>
+        };
+        range.enumerate().for_each(|(i, register)| {
+            self.registers
+                .insert(register, self.memory.read(self.i_register.add(i as u16)));
+        });
     }
 
     /// 5xy0 - SE Vx, Vy
@@ -249,7 +306,7 @@ impl<'a> Chip8<'a> {
         let register_x = self.registers[&instruction.x()];
         let register_y = self.registers[&instruction.y()];
         if register_x == register_y {
-            self.program_counter += 2;
+            self.skip_next_instruction();
         }
     }
 
@@ -390,10 +447,6 @@ impl<'a> Chip8<'a> {
     ///
     /// If the most-significant bit of Vx is 1, then VF is set to 1, otherwise to 0.
     /// Then Vx is multiplied by 2.
-    ///
-    /// *SCHIP*
-    ///
-    /// CHIP-48/SCHIP-1.x don't set vX to vY, so only shift vX
     fn shl_vx(&mut self, instruction: Instruction) {
         let target_register = if self.quirks.contains(&Quirks::ShiftIgnoreVY) {
             instruction.x()
@@ -421,7 +474,7 @@ impl<'a> Chip8<'a> {
         let register_x = self.registers[&instruction.x()];
         let register_y = self.registers[&instruction.y()];
         if register_x != register_y {
-            self.program_counter += 2;
+            self.skip_next_instruction();
         }
     }
 
@@ -479,38 +532,66 @@ impl<'a> Chip8<'a> {
     /// the opposite side of the screen.
     fn drw_vx_vy_n(&mut self, instruction: Instruction) {
         let pixel_erased = match (self.mode, instruction.n()) {
-            (ChipMode::SuperChip | ChipMode::Chip8, n) if n != 0 => {
-                let sprite_bytes: Vec<_> = (0..n as u16)
+            (_, n) if n != 0 => {
+                let sprites_to_draw = match self.display.get_current_plane() {
+                    Plane::First | Plane::Second => vec![(
+                        *self.display.get_current_plane(),
+                        self.memory.read_n_bytes(self.i_register.get(), n as u16),
+                    )],
+                    Plane::Both => vec![
+                        (
+                            Plane::First,
+                            self.memory.read_n_bytes(self.i_register.get(), n as u16),
+                        ),
+                        (
+                            Plane::Second,
+                            self.memory
+                                .read_n_bytes(self.i_register.add(n as u16), n as u16),
+                        ),
+                    ],
+                };
+                sprites_to_draw
                     .into_iter()
-                    .map(|i| self.memory.read(self.i_register.add(i)))
-                    .collect();
-                self.display.draw_sprite(
-                    self.registers[&instruction.x()] as usize,
-                    self.registers[&instruction.y()] as usize,
-                    &sprite_bytes,
-                )
+                    .map(|(plane, sprite)| {
+                        self.display.draw_sprite(
+                            self.registers[&instruction.x()] as usize,
+                            self.registers[&instruction.y()] as usize,
+                            &sprite,
+                            plane,
+                        )
+                    })
+                    .fold(false, |acc, is_pixel_erased| acc || is_pixel_erased)
             }
-            (ChipMode::SuperChip, 0) => {
-                let sprite_bytes = (0..32u16)
+            (ChipMode::SuperChip | ChipMode::XOChip, 0) => {
+                let sprites_to_draw = match self.display.get_current_plane() {
+                    Plane::First | Plane::Second => vec![(
+                        *self.display.get_current_plane(),
+                        self.memory.read_n_2bytes(self.i_register.get(), 16),
+                    )],
+                    Plane::Both => vec![
+                        (
+                            Plane::First,
+                            self.memory.read_n_2bytes(self.i_register.get(), 16),
+                        ),
+                        (
+                            Plane::Second,
+                            self.memory.read_n_2bytes(self.i_register.add(32), 16),
+                        ),
+                    ],
+                };
+                sprites_to_draw
                     .into_iter()
-                    .map(|i| self.memory.read(self.i_register.add(i)))
-                    .collect::<Vec<u8>>()
-                    .chunks_exact(2)
-                    .map(|sprite_bytes| u16::from_be_bytes(sprite_bytes.try_into().unwrap()))
-                    .collect::<Vec<u16>>()
-                    .try_into()
-                    .unwrap();
-                self.display.draw_16_16_sprite(
-                    self.registers[&instruction.x()] as usize,
-                    self.registers[&instruction.y()] as usize,
-                    sprite_bytes,
-                )
+                    .map(|(plane, sprite)| {
+                        self.display.draw_16_16_sprite(
+                            self.registers[&instruction.x()] as usize,
+                            self.registers[&instruction.y()] as usize,
+                            sprite.try_into().unwrap(),
+                            plane,
+                        )
+                    })
+                    .fold(false, |acc, is_pixel_erased| acc || is_pixel_erased)
             }
-            _ => panic!(
-                "Unable to draw sprite n: {} hires: {}.",
-                instruction.n(),
-                self.display.is_hires()
-            ),
+            _ => panic!("Unable to draw sprite.",),
         };
         self.registers.insert(0xF, pixel_erased as u8);
     }
@@ -523,7 +604,7 @@ impl<'a> Chip8<'a> {
     fn skp_vx(&mut self, instruction: Instruction) {
         let register_x = self.registers[&instruction.x()];
         if self.keyboard.is_key_pressed(register_x) {
-            self.program_counter += 2
+            self.skip_next_instruction();
         };
     }
 
@@ -535,8 +616,26 @@ impl<'a> Chip8<'a> {
     fn sknp_vx(&mut self, instruction: Instruction) {
         let register_x = self.registers[&instruction.x()];
         if !self.keyboard.is_key_pressed(register_x) {
-            self.program_counter += 2
+            self.skip_next_instruction();
         };
+    }
+
+    /// 0xF000 0xNNNN - Load `I` with a 16-bit address.
+    fn load_i(&mut self) {
+        let new_i_value = self.next_instruction().value();
+        self.i_register.set(new_i_value);
+    }
+
+    /// 0xFX01 - Select zero or more drawing planes by bitmask (0 <= X <= 3).
+    fn set_plane(&mut self, instruction: Instruction) {
+        let plane = match instruction.x() {
+            0 => return,
+            1 => Plane::First,
+            2 => Plane::Second,
+            3 => Plane::Both,
+            invalid_plane => panic!("Invalid plane to select {invalid_plane}."),
+        };
+        self.display.set_plane(plane);
     }
 
     /// Fx07 - LD Vx, DT
@@ -663,11 +762,20 @@ impl<'a> Chip8<'a> {
 
     /// Fx75 - Store V0..VX in RPL user flags (x <= 7)
     fn load_rpl_flags(&mut self, instruction: Instruction) {
+        let register_quantity = match self.mode {
+            ChipMode::XOChip => &&instruction.x(),
+            ChipMode::SuperChip if instruction.x() <= 7 => &&instruction.x(),
+            _ => panic!(
+                "Unable to load RPL {} flags on {} platform.",
+                instruction.x(),
+                self.mode
+            ),
+        };
         self.memory.write_rpl_flags(
             &self
                 .registers
                 .iter()
-                .filter(|(i, _)| i < &&instruction.x())
+                .filter(|(i, _)| i < register_quantity)
                 .map(|(i, _)| self.registers[i])
                 .collect::<Vec<_>>(),
         );
@@ -675,14 +783,33 @@ impl<'a> Chip8<'a> {
 
     /// Fx85 - Read V0..VX from RPL user flags (x <= 7)
     fn read_rpl_flags(&mut self, instruction: Instruction) {
+        let register_quantity = match self.mode {
+            ChipMode::XOChip => &&instruction.x(),
+            ChipMode::SuperChip if instruction.x() <= 7 => &&instruction.x(),
+            _ => panic!(
+                "Unable to load RPL {} flags on {} platform.",
+                instruction.x(),
+                self.mode
+            ),
+        };
         self.memory
             .read_rpl_flags()
             .iter()
-            .filter(|x| x < &&instruction.x())
+            .filter(|x| x < register_quantity)
             .enumerate()
             .for_each(|(i, &x)| {
                 self.registers.insert(i as u8, x);
             });
+    }
+
+    fn skip_next_instruction(&mut self) {
+        if self.mode == &ChipMode::XOChip {
+            if self.next_instruction().nibbles() == (0xF, 0, 0, 0) {
+                self.program_counter += 2;
+            }
+        } else {
+            self.program_counter += 2;
+        }
     }
 
     fn next_instruction(&mut self) -> Instruction {

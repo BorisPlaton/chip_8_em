@@ -28,6 +28,10 @@ impl Instruction {
         (first_nibble, second_nibble, third_nibble, fourth_nibble)
     }
 
+    pub fn value(&self) -> u16 {
+        self.value
+    }
+
     /// nnn or addr - A 12-bit value, the lowest 12 bits of the instruction
     pub fn nnn(&self) -> u16 {
         self.value & 0x0FFF

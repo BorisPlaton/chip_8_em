@@ -3,7 +3,8 @@ use crate::cli::parser::EmulatorConfig;
 use crate::devices::audio::AudioDevice;
 use crate::devices::display::DisplayDevice;
 use crate::devices::keyboard::KeyboardDevice;
-use chip8::display::Display;
+use chip8::display::{Color, Display};
+use std::collections::HashMap;
 
 mod chip;
 mod cli;
@@ -23,6 +24,12 @@ fn main() {
         Display::HIRES_WIDTH as u32,
         Display::HIRES_HEIGHT as u32,
         config.scale as u32,
+        HashMap::from([
+            (Color::Disabled, (15, 10, 20)),
+            (Color::OnlyFirstPlane, (255, 240, 247)),
+            (Color::OnlySecondPlane, (252, 3, 115)),
+            (Color::Both, (255, 240, 247)),
+        ]),
     );
 
     chip8.run(|keyboard, display, st_register_val| {

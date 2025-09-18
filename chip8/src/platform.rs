@@ -4,6 +4,7 @@ use std::fmt::Display;
 pub enum ChipMode {
     Chip8,
     SuperChip,
+    XOChip,
 }
 
 #[derive(Hash, Eq, PartialEq)]
@@ -49,6 +50,9 @@ pub enum Quirks {
     /// The AND, OR and XOR opcodes reset the flags register to zero in
     /// the end.
     BinaryOpResetVF,
+
+    /// Wraps pixels instead of clipping them.
+    WrapsInsteadClipping,
 }
 
 impl Display for ChipMode {
@@ -56,6 +60,7 @@ impl Display for ChipMode {
         match self {
             ChipMode::Chip8 => write!(f, "CHIP-8"),
             ChipMode::SuperChip => write!(f, "SUPER-CHIP"),
+            ChipMode::XOChip => write!(f, "XO-CHIP"),
         }
     }
 }

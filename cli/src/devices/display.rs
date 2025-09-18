@@ -1,8 +1,9 @@
-use chip8::display::Display;
+use chip8::display::{Color, Display};
 use sdl2::Sdl;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{TextureCreator, WindowCanvas};
 use sdl2::video::WindowContext;
+use std::collections::HashMap;
 
 pub struct DisplayDevice {
     texture_creator: TextureCreator<WindowContext>,
@@ -10,6 +11,7 @@ pub struct DisplayDevice {
     canvas: WindowCanvas,
     width: u32,
     height: u32,
+    palette: HashMap<Color, (u8, u8, u8)>,
 }
 
 struct Frame {
@@ -23,6 +25,7 @@ impl DisplayDevice {
         width: u32,
         height: u32,
         scale: u32,
+        palette: HashMap<Color, (u8, u8, u8)>,
     ) -> DisplayDevice {
         let window = sdl_context
             .video()
@@ -41,6 +44,7 @@ impl DisplayDevice {
             width,
             height,
             canvas,
+            palette,
             current_frame: Frame::default(),
         }
     }
@@ -54,7 +58,7 @@ impl DisplayDevice {
             .create_texture_target(PixelFormatEnum::RGB24, self.width, self.height)
             .unwrap();
 
-        self.current_frame.update(display);
+        self.current_frame.update(display, &self.palette);
         texture
             .update(None, self.current_frame.pixels(), (self.width * 3) as usize)
             .unwrap();
@@ -64,26 +68,27 @@ impl DisplayDevice {
     }
 }
 
-impl Default for Frame {
-    fn default() -> Self {
-        Frame { pixels: [0; 24576] }
-    }
-}
-
 impl Frame {
-    fn update(&mut self, display: &Display) {
+    fn update(&mut self, display: &Display, palette: &HashMap<Color, (u8, u8, u8)>) {
         display
-            .buffer()
+            .display_bitplane()
             .iter()
             .enumerate()
-            .for_each(|(pixel, &is_enabled)| {
-                self.pixels[pixel * 3] = 64;
-                self.pixels[pixel * 3 + 1] = if is_enabled { 128 } else { 0 };
-                self.pixels[pixel * 3 + 2] = 128;
+            .for_each(|(pixel, color)| {
+                let rgb = &palette[color];
+                self.pixels[pixel * 3] = rgb.0;
+                self.pixels[pixel * 3 + 1] = rgb.1;
+                self.pixels[pixel * 3 + 2] = rgb.2;
             });
     }
 
     fn pixels(&self) -> &[u8] {
         &self.pixels
+    }
+}
+
+impl Default for Frame {
+    fn default() -> Self {
+        Frame { pixels: [0; 24576] }
     }
 }
