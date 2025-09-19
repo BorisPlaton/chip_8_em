@@ -1,7 +1,8 @@
 use crate::cli::args::{Args, Platform};
+use chip8::display::Color;
 use chip8::platform::{ChipMode, Quirks};
 use clap::Parser;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub struct EmulatorConfig {
     pub file: String,
@@ -10,6 +11,7 @@ pub struct EmulatorConfig {
     pub scale: u8,
     pub ticks: u16,
     pub sleep: Option<u8>,
+    pub palette: HashMap<Color, (u8, u8, u8)>,
 }
 
 impl EmulatorConfig {
@@ -39,6 +41,32 @@ impl EmulatorConfig {
             scale: args.scale,
             ticks: args.instructions_per_frame,
             sleep: args.sleep,
+            palette: HashMap::from([
+                (Color::Disabled, {
+                    let red = (args.set_disabled_color >> 16) as u8;
+                    let green = (args.set_disabled_color >> 8) as u8;
+                    let blue = args.set_disabled_color as u8;
+                    (red, green, blue)
+                }),
+                (Color::OnlyFirstPlane, {
+                    let red = (args.set_first_plane_color >> 16) as u8;
+                    let green = (args.set_first_plane_color >> 8) as u8;
+                    let blue = args.set_first_plane_color as u8;
+                    (red, green, blue)
+                }),
+                (Color::OnlySecondPlane, {
+                    let red = (args.set_second_plane_color >> 16) as u8;
+                    let green = (args.set_second_plane_color >> 8) as u8;
+                    let blue = args.set_second_plane_color as u8;
+                    (red, green, blue)
+                }),
+                (Color::Both, {
+                    let red = (args.set_both_plane_color >> 16) as u8;
+                    let green = (args.set_both_plane_color >> 8) as u8;
+                    let blue = args.set_both_plane_color as u8;
+                    (red, green, blue)
+                }),
+            ]),
             quirks,
         }
     }

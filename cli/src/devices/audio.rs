@@ -2,22 +2,31 @@ use sdl2::Sdl;
 use sdl2::audio::{AudioCallback, AudioDevice as AudioDeviceSDL, AudioSpecDesired};
 
 pub struct AudioDevice {
-    subsystem: AudioDeviceSDL<SquareWave>,
+    subsystem: AudioDeviceSDL<ChipAudio>,
 }
 
-struct SquareWave {
-    phase_inc: f32,
-    phase: f32,
-    volume: f32,
+struct ChipAudio {
+    pattern: [u8; 16],
+    pitch: u16,
+    phase: f64,
+    sample_rate: f64,
 }
 
-impl AudioCallback for SquareWave {
+impl AudioCallback for ChipAudio {
     type Channel = f32;
 
     fn callback(&mut self, out: &mut [f32]) {
-        for x in out.iter_mut() {
-            *x = self.volume * if self.phase < 0.5 { 1.0 } else { -1.0 };
-            self.phase = (self.phase + self.phase_inc) % 1.0;
+        for sample in out.iter_mut() {
+            let pattern_index = (self.phase / 8.0).floor() as usize % 16;
+            let current_byte = self.pattern[pattern_index];
+            let bit_value = (current_byte >> (7 - (self.phase as usize % 8))) & 1;
+
+            *sample = if bit_value == 1 { 0.5 } else { -0.5 };
+
+            self.phase += (self.pitch as f64) / self.sample_rate * 128.0;
+            if self.phase >= 128.0 {
+                self.phase -= 128.0;
+            }
         }
     }
 }
@@ -30,20 +39,27 @@ impl AudioDevice {
             channels: Some(1),
             samples: None,
         };
-
         let device = audio_subsystem
-            .open_playback(None, &desired_spec, |spec| SquareWave {
-                phase_inc: 240.0 / spec.freq as f32,
+            .open_playback(None, &desired_spec, |spec| ChipAudio {
+                pattern: [0xFF; 16],
                 phase: 0.0,
-                volume: 0.25,
+                sample_rate: spec.freq as f64,
+                pitch: 0,
             })
             .unwrap();
 
         AudioDevice { subsystem: device }
     }
 
-    pub fn play_sound(&self, sound_register: u8) {
+    pub fn configure(&mut self, audio_buffer: &[u8], pitch: u16) {
+        let mut audio_lock = self.subsystem.lock();
+        audio_lock.pattern.copy_from_slice(audio_buffer);
+        audio_lock.pitch = pitch;
+    }
+
+    pub fn play_sound(&mut self, sound_register: u8, audio_buffer: &[u8], pitch: u16) {
         if sound_register > 0 {
+            self.configure(audio_buffer, pitch);
             self.subsystem.resume();
         } else {
             self.subsystem.pause();

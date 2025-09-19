@@ -27,10 +27,10 @@ pub struct Chip8<'a> {
     /// PC is used to store the currently executing address.
     program_counter: u16,
 
-    audio_buffer: [u16; 16],
+    audio_buffer: [u8; 16],
     pitch: u16,
 
-    ticks_per_frame: u16,
+    ticks_per_frame: u32,
     mode: &'a ChipMode,
     quirks: &'a HashSet<Quirks>,
     sleep_time: Option<u8>,
@@ -41,7 +41,7 @@ impl<'a> Chip8<'a> {
         rom: Rom,
         mode: &'a ChipMode,
         quirks: &'a HashSet<Quirks>,
-        ticks_per_frame: u16,
+        ticks_per_frame: u32,
         sleep_time: Option<u8>,
     ) -> Chip8<'a> {
         let memory = Memory::new(rom.content(), mode);
@@ -75,7 +75,7 @@ impl<'a> Chip8<'a> {
                 registers.insert(0xF, 0);
                 registers
             },
-            audio_buffer: [0xFFFF; 16],
+            audio_buffer: [0xFF; 16],
             pitch: 8000,
             mode,
             quirks,
@@ -86,8 +86,10 @@ impl<'a> Chip8<'a> {
 
     pub fn run<F>(&mut self, mut callback: F)
     where
-        F: FnMut(&mut Keyboard, &Display, u8),
+        F: FnMut(&mut Keyboard, &Display, u8, &[u8], u16),
     {
+        let mut passed_ticks: u32 = 0;
+
         loop {
             (0..self.ticks_per_frame).for_each(|_| {
                 self.execute();
@@ -95,9 +97,21 @@ impl<'a> Chip8<'a> {
                     std::thread::sleep(Duration::from_micros(sleep_time as u64));
                 }
             });
-            self.dt_register.tick();
-            self.st_register.tick();
-            callback(&mut self.keyboard, &self.display, self.st_register.get());
+            passed_ticks += self.ticks_per_frame;
+
+            if passed_ticks > self.ticks_per_frame {
+                passed_ticks = 0;
+                self.dt_register.tick();
+                self.st_register.tick();
+            }
+
+            callback(
+                &mut self.keyboard,
+                &self.display,
+                self.st_register.get(),
+                &self.audio_buffer,
+                self.pitch,
+            );
         }
     }
 
@@ -147,7 +161,7 @@ impl<'a> Chip8<'a> {
             (_, (0xE, _, 0xA, 1)) => self.sknp_vx(instruction),
             (ChipMode::XOChip, (0xF, 0, 0, 0)) => self.load_i(),
             (ChipMode::XOChip, (0xF, _, 0, 1)) => self.set_plane(instruction),
-            (ChipMode::XOChip, (0xF, 0, 0, 2)) => {}
+            (ChipMode::XOChip, (0xF, 0, 0, 2)) => self.load_audio_buffer(),
             (_, (0xF, _, 0, 7)) => self.ld_vx_dt(instruction),
             (_, (0xF, _, 0, 0xA)) => self.ld_vx_k(instruction),
             (_, (0xF, _, 1, 5)) => self.ld_dt_vx(instruction),
@@ -158,7 +172,7 @@ impl<'a> Chip8<'a> {
                 self.load_10_byte_font_to_i(instruction)
             }
             (_, (0xF, _, 3, 3)) => self.ld_b_vx(instruction),
-            (ChipMode::XOChip, (0xF, _, 3, 0xA)) => {}
+            (ChipMode::XOChip, (0xF, _, 3, 0xA)) => self.set_pitch(instruction),
             (_, (0xF, _, 5, 5)) => self.ld_i_vx(instruction),
             (_, (0xF, _, 6, 5)) => self.ld_vx_i(instruction),
             (ChipMode::SuperChip | ChipMode::XOChip, (0xF, _, 7, 5)) => {
@@ -638,6 +652,16 @@ impl<'a> Chip8<'a> {
         self.display.set_plane(plane);
     }
 
+    /// 0xF002 - Store 16 bytes starting at `I` in the audio pattern buffer.
+    fn load_audio_buffer(&mut self) {
+        let buffer: [u8; 16] = self
+            .memory
+            .read_n_bytes(self.i_register.get(), 16)
+            .try_into()
+            .unwrap();
+        self.audio_buffer = buffer;
+    }
+
     /// Fx07 - LD Vx, DT
     /// Set Vx = delay timer value.
     ///
@@ -722,6 +746,11 @@ impl<'a> Chip8<'a> {
         self.memory
             .write(self.i_register.add(1), (register_x / 10) % 10);
         self.memory.write(self.i_register.add(2), register_x % 10);
+    }
+
+    /// 0xFx3A - Set the audio pattern playback rate to 4000 * 2 ^ ((Vx - 64) / 48) Hz.
+    fn set_pitch(&mut self, instruction: Instruction) {
+        self.pitch = 4000 * 2u16.pow((self.registers[&instruction.x()] as u32 - 64) / 48);
     }
 
     /// Fx55 - LD [I], Vx

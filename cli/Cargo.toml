@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 chip8 = { path = "../chip8" }
 clap = { version = "4.5.47", features = ["derive"] }
+clap-num = "1.2.0"
 sdl2 = "0.38.0"

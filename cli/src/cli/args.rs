@@ -1,5 +1,6 @@
 use clap::builder::PossibleValue;
 use clap::{Parser, ValueEnum};
+use clap_num::maybe_hex;
 
 #[derive(Parser)]
 pub struct Args {
@@ -62,7 +63,7 @@ pub struct Args {
     pub wrap_instead_of_clipping_quirk: bool,
 
     /// Scale of the emulator window.
-    #[arg(long, default_value_t = 7, value_parser=clap::value_parser!(u8).range(..=13))]
+    #[arg(long, default_value_t = 7, value_parser = clap::value_parser!(u8).range(..=13))]
     pub scale: u8,
 
     /// How many instructions executed per 1 video frame.
@@ -74,8 +75,24 @@ pub struct Args {
     /// Program will wait this amount of microseconds after each instruction.
     ///
     /// Use this if the program is very fast and you want to slow down it.
-    #[arg(long, value_parser=clap::value_parser!(u8))]
+    #[arg(long, value_parser = clap::value_parser!(u8))]
     pub sleep: Option<u8>,
+
+    /// Set color in hex for disabled pixels.
+    #[arg(long, default_value = "0x000000", value_parser = maybe_hex::<u32>, value_name = "DISABLED COLOR")]
+    pub set_disabled_color: u32,
+
+    /// Set color in hex for enabled pixels on the first plane.
+    #[arg(long, default_value = "0xFF0000", value_parser = maybe_hex::<u32>, value_name = "FIRST PLANE VALUE")]
+    pub set_first_plane_color: u32,
+
+    /// Set color in hex for enabled pixels on the second plane.
+    #[arg(long, default_value = "0x00FF00", value_parser = maybe_hex::<u32>, value_name = "SECOND PLANE VALUE")]
+    pub set_second_plane_color: u32,
+
+    /// Set color in hex for enabled pixels on the first and second plane.
+    #[arg(long, default_value = "0x0000FF", value_parser = maybe_hex::<u32>, value_name = "BOTH PLANE VALUE")]
+    pub set_both_plane_color: u32,
 }
 
 #[derive(Clone)]

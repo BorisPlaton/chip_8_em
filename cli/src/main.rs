@@ -3,8 +3,7 @@ use crate::cli::parser::EmulatorConfig;
 use crate::devices::audio::AudioDevice;
 use crate::devices::display::DisplayDevice;
 use crate::devices::keyboard::KeyboardDevice;
-use chip8::display::{Color, Display};
-use std::collections::HashMap;
+use chip8::display::Display;
 
 mod chip;
 mod cli;
@@ -14,9 +13,15 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
 
     let config = EmulatorConfig::new();
-    let mut chip8 = init_chip8(&config);
+    let mut chip8 = init_chip8(
+        &config.file,
+        &config.mode,
+        &config.quirks,
+        config.ticks,
+        config.sleep,
+    );
 
-    let audio_device = AudioDevice::new(&sdl_context);
+    let mut audio_device = AudioDevice::new(&sdl_context);
     let mut keyboard_device = KeyboardDevice::new(&sdl_context);
     let mut display_device = DisplayDevice::new(
         &sdl_context,
@@ -24,17 +29,12 @@ fn main() {
         Display::HIRES_WIDTH as u32,
         Display::HIRES_HEIGHT as u32,
         config.scale as u32,
-        HashMap::from([
-            (Color::Disabled, (15, 10, 20)),
-            (Color::OnlyFirstPlane, (255, 240, 247)),
-            (Color::OnlySecondPlane, (252, 3, 115)),
-            (Color::Both, (255, 240, 247)),
-        ]),
+        config.palette,
     );
 
-    chip8.run(|keyboard, display, st_register_val| {
+    chip8.run(|keyboard, display, st_register_val, audio_buffer, pitch| {
         display_device.draw(display);
-        audio_device.play_sound(st_register_val);
+        audio_device.play_sound(st_register_val, audio_buffer, pitch);
         keyboard_device
             .keys_state()
             .iter()
