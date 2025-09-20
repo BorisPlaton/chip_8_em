@@ -88,8 +88,6 @@ impl<'a> Chip8<'a> {
     where
         F: FnMut(&mut Keyboard, &Display, u8, &[u8], u16),
     {
-        let mut passed_ticks: u32 = 0;
-
         loop {
             (0..self.ticks_per_frame).for_each(|_| {
                 self.execute();
@@ -97,13 +95,9 @@ impl<'a> Chip8<'a> {
                     std::thread::sleep(Duration::from_micros(sleep_time as u64));
                 }
             });
-            passed_ticks += self.ticks_per_frame;
 
-            if passed_ticks > self.ticks_per_frame {
-                passed_ticks = 0;
-                self.dt_register.tick();
-                self.st_register.tick();
-            }
+            self.dt_register.tick();
+            self.st_register.tick();
 
             callback(
                 &mut self.keyboard,
@@ -181,12 +175,10 @@ impl<'a> Chip8<'a> {
             (ChipMode::SuperChip | ChipMode::XOChip, (0xF, _, 8, 5)) => {
                 self.read_rpl_flags(instruction)
             }
-            (_, bytes) => {
-                let lo_byte = bytes.3 + (bytes.2 << 4);
-                let hi_byte = bytes.1 + (bytes.0 << 4);
+            _ => {
                 panic!(
                     "Unknown instruction 0x{:04X} for {}",
-                    u16::from_be_bytes([hi_byte, lo_byte]),
+                    instruction.value(),
                     self.mode,
                 )
             }

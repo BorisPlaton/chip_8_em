@@ -81,7 +81,7 @@ impl<'a> Display<'a> {
             for col in 0..8 {
                 let mut x_cord = x + col;
 
-                if x_cord >= screen_width && wraps_instead_clipping {
+                if x_cord >= screen_width {
                     if wraps_instead_clipping {
                         x_cord = x_cord - screen_width;
                     } else {
